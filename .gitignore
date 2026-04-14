@@ -13,6 +13,7 @@ env/
 backend/anime.db
 backend/anime.db-wal
 backend/anime.db-shm
+backend/*.pem
 server.log
 
 # OS generated files
