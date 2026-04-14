@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AniNews Admin | Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --admin-primary: #833ab4;
+            --admin-secondary: #6366f1;
+            --admin-bg: #09090b;
+            --admin-card: rgba(255, 255, 255, 0.03);
+            --admin-border: rgba(255, 255, 255, 0.08);
+        }
+
+        .admin-container {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: var(--admin-card);
+            border: 1px solid var(--admin-border);
+            border-radius: 20px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            transition: 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--admin-primary);
+            opacity: 0.5;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.06);
+            border-color: var(--admin-primary);
+        }
+
+        .stat-label {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: white;
+        }
+
+        .stat-trend {
+            font-size: 0.8rem;
+            color: #10b981;
+            display: flex;
+            align-items: center;
+            gap: 0.2rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .section-header h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .admin-tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--admin-border);
+            padding-bottom: 1rem;
+        }
+
+        .tab {
+            padding: 0.6rem 1.2rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: 0.3s;
+            font-weight: 600;
+            border: 1px solid transparent;
+            color: var(--text-dim);
+        }
+
+        .tab.active {
+            background: var(--admin-primary);
+            color: white;
+        }
+
+        .tab:hover:not(.active) {
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+        }
+
+        .admin-table-container {
+            background: var(--admin-card);
+            border: 1px solid var(--admin-border);
+            border-radius: 20px;
+            overflow: hidden;
+            margin-bottom: 3rem;
+        }
+
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .admin-table th,
+        .admin-table td {
+            padding: 1.2rem;
+            text-align: left;
+            border-bottom: 1px solid var(--admin-border);
+        }
+
+        .admin-table th {
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .admin-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .user-online-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+            box-shadow: 0 0 10px #10b981;
+        }
+
+        .user-offline-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--text-dim);
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+
+        .actions-btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            border-radius: 8px;
+        }
+
+        #animeSection,
+        #usersSection {
+            display: none;
+        }
+
+        #animeSection.active,
+        #usersSection.active {
+            display: block;
+        }
+
+        .loading-shimmer {
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="container" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <div class="logo">Ani<span>News</span> Admin</div>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div id="userProfile" class="user-profile" style="background: none; border: none; padding: 0;">
+                    <!-- Injected by JS -->
+                </div>
+                <button onclick="window.location.href='/'"
+                    style="background: transparent; border: 1px solid var(--glass-border);">Back to Site</button>
+                <button onclick="openModal()">+ Add Anime</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="admin-container">
+        <!-- Stats Dashboard -->
+        <div class="dashboard-grid">
+            <div class="stat-card">
+                <span class="stat-label">Online Users</span>
+                <span class="stat-value" id="onlineUsersCount">0</span>
+                <span class="stat-trend">Live Now</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Total Users</span>
+                <span class="stat-value" id="totalUsersCount">0</span>
+                <span class="stat-trend">+0% this week</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Total Anime</span>
+                <span class="stat-value" id="totalAnimeCount">0</span>
+                <span class="stat-trend">In Database</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Pending Approval</span>
+                <span class="stat-value" id="pendingAnimeCount">0</span>
+                <span class="stat-trend" style="color: var(--accent);">Requires action</span>
+            </div>
+        </div>
+
+        <div class="admin-tabs">
+            <div class="tab active" onclick="switchTab('anime', this)">Anime Management</div>
+            <div class="tab" onclick="switchTab('users', this)">User Management</div>
+            <div class="tab" onclick="triggerUpdate(this)">Sync Database</div>
+        </div>
+
+        <!-- Anime Section -->
+        <div id="animeSection" class="active">
+            <div class="section-header"
+                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                <h2>Manage Anime</h2>
+                <div class="search-bar" style="display: flex; gap: 0.5rem; flex: 1; max-width: 400px;">
+                    <input type="text" id="adminAnimeSearch" placeholder="Search by title..."
+                        style="flex: 1; padding: 0.6rem 1rem; background: rgba(255,255,255,0.05); border: 1px solid var(--admin-border); border-radius: 8px; color: white; outline: none;">
+                    <button onclick="searchAdminAnime()"
+                        style="padding: 0.6rem 1.2rem; white-space: nowrap;">Search</button>
+                </div>
+            </div>
+            <div class="admin-table-container">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Anime Info</th>
+                            <th>Status</th>
+                            <th>Release Date</th>
+                            <th>Approval</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminTableBody">
+                        <!-- Data injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Users Section -->
+        <div id="usersSection">
+            <div class="section-header">
+                <h2>User Directory</h2>
+            </div>
+            <div class="admin-table-container">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Last Active</th>
+                            <th>Joined</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <!-- Data injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal (reuse existing logic but improved style) -->
+    <div id="addModal" class="modal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 2rem;">Add New Anime</h2>
+            <form id="addForm">
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" id="m_title" required placeholder="Enter anime title">
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div class="form-group">
+                        <label>Release Date</label>
+                        <input type="date" id="m_date" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="m_status">
+                            <option value="Upcoming">Upcoming</option>
+                            <option value="Ongoing">Ongoing</option>
+                            <option value="Released">Released</option>
+                            <option value="Completed">Completed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Genres (comma separated)</label>
+                    <input type="text" id="m_genres" placeholder="Action, Adventure, Fantasy">
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div class="form-group">
+                        <label>Platform Name</label>
+                        <input type="text" id="m_platform" placeholder="Crunchyroll, Netflix, etc.">
+                    </div>
+                    <div class="form-group">
+                        <label>Official Streaming Link</label>
+                        <input type="url" id="m_streaming" placeholder="https://crunchyroll.com/...">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Poster URL</label>
+                    <input type="url" id="m_poster" placeholder="https://image-url.com/poster.jpg">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="m_desc" rows="4" placeholder="Describe the anime..."></textarea>
+                </div>
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+                    <button type="button" onclick="closeModal()"
+                        style="background: transparent; border: 1px solid var(--glass-border);">Cancel</button>
+                    <button type="submit">Save Anime</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+
+</html>

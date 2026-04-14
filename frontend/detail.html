@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AniNews | Anime Details</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="main-layout">
+        <aside class="sidebar">
+            <div class="logo">Ani<span>News</span></div>
+            <nav>
+                <a href="/">🏠 <span>Home</span></a>
+                <a href="/#trending">🔥 <span>Trending</span></a>
+                <a href="/admin" id="adminLink" style="display: none;">⚙️ <span>Admin</span></a>
+            </nav>
+            <div id="userProfile" class="user-profile">
+                <!-- Logged in status will be injected here -->
+                <a href="/login">🔑 Login</a>
+            </div>
+        </aside>
+
+        <main>
+            <div id="detailContainer" class="detail-layout">
+                <div class="loading">Loading details...</div>
+            </div>
+
+            <div class="containerRelated">
+                <!-- Related anime will be injected here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Reminder Modal -->
+    <div id="reminderModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeReminderModal()">&times;</span>
+            <div class="modal-header">
+                <h2>Set Reminder</h2>
+            </div>
+            <div class="reminder-options">
+                <div class="option-card" onclick="reminderOptionA()">
+                    <h3>📅 Add to Calendar</h3>
+                </div>
+                <div class="option-card" onclick="reminderOptionB()">
+                    <h3>📧 Email Notification</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="detail.js"></script>
+</body>
+
+</html>
