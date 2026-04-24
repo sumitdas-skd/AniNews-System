@@ -1,195 +1,359 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AniNews | Login & Registration</title>
-    <link rel="stylesheet" href="style.css">
+    <title>AniNews | Login</title>
+    <meta name="description" content="Login to AniNews — Your anime tracker & news hub.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <style>
-        .login-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 2rem;
-        }
-
-        .auth-card {
-            background: var(--glass);
-            border: 1px solid var(--glass-border);
-            padding: 3rem;
-            border-radius: 24px;
-            width: 100%;
-            max-width: 400px;
-            backdrop-filter: blur(20px);
-            animation: fadeIn 0.8s ease forwards;
-        }
-
-        .auth-card h2 {
-            margin-bottom: 2rem;
-            text-align: center;
-            font-size: 2rem;
-            background: linear-gradient(to right, var(--primary), var(--accent));
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .auth-card .form-group {
-            margin-bottom: 1.5rem;
-        }
-
-        .auth-card input {
-            width: 100%;
-            padding: 1rem;
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--glass-border);
-            color: white;
-            font-size: 1rem;
-        }
-
-        .auth-card .btn-primary {
-            width: 100%;
-            padding: 1rem;
-            border-radius: 12px;
-            margin-top: 1rem;
-        }
-
-        .auth-toggle {
-            text-align: center;
-            margin-top: 1.5rem;
-            font-size: 0.9rem;
-            color: var(--text-dim);
-        }
-
-        .auth-toggle span {
-            color: var(--primary);
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-        .error-message {
-            color: #ff4d4d;
-            font-size: 0.85rem;
-            text-align: center;
-            margin-top: 1rem;
-            display: none;
-        }
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="login.css">
 </head>
-
 <body>
-    <div class="login-container">
-        <div class="auth-card" id="loginCard">
-            <h2>Welcome Back</h2>
-            <form id="loginForm">
-                <div class="form-group">
-                    <input type="email" id="loginEmail" placeholder="Email Address" required>
-                </div>
-                <div class="form-group">
-                    <input type="password" id="loginPassword" placeholder="Password" required>
-                </div>
-                <button type="submit" class="btn-primary">Login</button>
-                <div id="loginError" class="error-message"></div>
-                <div class="auth-toggle">
-                    Don't have an account? <span onclick="toggleAuth('register')">Sign Up</span>
-                </div>
-            </form>
-        </div>
 
-        <div class="auth-card" id="registerCard" style="display: none;">
-            <h2>Join AniNews</h2>
-            <form id="registerForm">
-                <div class="form-group">
-                    <input type="email" id="regEmail" placeholder="Email Address" required>
-                </div>
-                <div class="form-group">
-                    <input type="password" id="regPassword" placeholder="Create Password" required>
-                </div>
-                <button type="submit" class="btn-primary">Create Account</button>
-                <div id="regError" class="error-message"></div>
-                <div class="auth-toggle">
-                    Already have an account? <span onclick="toggleAuth('login')">Login</span>
-                </div>
-            </form>
+<!-- Cyber Grid Background -->
+<div class="cyber-grid"></div>
+
+<!-- Sakura Petals Background -->
+<div class="sakura-bg" id="sakuraBg"></div>
+
+<!-- Login Container -->
+<div class="login-container">
+
+    <!-- ─── LOGIN CARD ─── -->
+    <div class="auth-card" id="loginCard">
+        <div class="auth-logo">Ani<span>News</span></div>
+        <p class="auth-subtitle">Your anime universe awaits</p>
+        <h2>Welcome Back</h2>
+        <form id="loginForm" autocomplete="on">
+            <div class="form-group">
+                <input type="email" id="loginEmail" required autocomplete="email">
+                <label for="loginEmail">Email Address</label>
+            </div>
+            <div class="form-group">
+                <input type="password" id="loginPassword" required autocomplete="current-password" style="padding-right: 60px;">
+                <label for="loginPassword">Password</label>
+                <span class="password-toggle" onclick="togglePassword('loginPassword', this)">SHOW</span>
+            </div>
+            <div class="form-options">
+                <label class="remember-me">
+                    <input type="checkbox" id="rememberMe"> Remember me
+                </label>
+                <span class="forgot-link" onclick="toggleAuth('forgot')">Forgot password?</span>
+            </div>
+            <button type="submit" class="btn-primary" id="loginBtn">Login →</button>
+            <div id="loginError" class="error-message"></div>
+        </form>
+        <div class="auth-toggle">
+            Don't have an account? <span onclick="toggleAuth('register')">Sign Up</span>
         </div>
     </div>
 
-    <script>
-        // Redirect if already logged in
-        fetch('/api/auth/me').then(res => res.json()).then(data => {
-            if (data.status === 'success') window.location.replace('/');
-        });
+    <!-- ─── REGISTER CARD ─── -->
+    <div class="auth-card" id="registerCard" style="display:none;">
+        <div class="auth-logo">Ani<span>News</span></div>
+        <p class="auth-subtitle">Join the community</p>
+        <h2>Create Account</h2>
+        <form id="registerForm" autocomplete="on">
+            <div class="form-group">
+                <input type="email" id="regEmail" required autocomplete="email">
+                <label for="regEmail">Email Address</label>
+            </div>
+            <div class="form-group">
+                <input type="password" id="regPassword" required minlength="6" autocomplete="new-password" style="padding-right: 60px;">
+                <label for="regPassword">Create Password</label>
+                <span class="password-toggle" onclick="togglePassword('regPassword', this)">SHOW</span>
+            </div>
+            <button type="submit" class="btn-primary" id="registerBtn">Create Account →</button>
+            <div id="regError" class="error-message"></div>
+        </form>
+        <div class="auth-toggle">
+            Already have an account? <span onclick="toggleAuth('login')">Login</span>
+        </div>
+    </div>
 
-        function toggleAuth(mode) {
-            const loginCard = document.getElementById('loginCard');
-            const registerCard = document.getElementById('registerCard');
-            if (mode === 'register') {
-                loginCard.style.display = 'none';
-                registerCard.style.display = 'block';
-            } else {
-                loginCard.style.display = 'block';
-                registerCard.style.display = 'none';
-            }
+    <!-- ─── FORGOT PASSWORD CARD ─── -->
+    <div class="auth-card" id="forgotCard" style="display:none;">
+        <div class="auth-logo">Ani<span>News</span></div>
+        <h2>Reset Password</h2>
+        <p class="forgot-desc">Enter your email address and we'll send you a reset link.</p>
+        <form id="forgotForm">
+            <div class="form-group">
+                <input type="email" id="forgotEmail" required>
+                <label for="forgotEmail">Email Address</label>
+            </div>
+            <button type="submit" class="btn-primary">Send Reset Link →</button>
+            <div id="forgotError" class="error-message"></div>
+            <div id="forgotSuccess" class="success-message"></div>
+        </form>
+        <div class="auth-toggle">
+            Wait, I remember! <span onclick="toggleAuth('login')">Login</span>
+        </div>
+    </div>
+
+    <!-- ─── RESET PASSWORD CARD ─── -->
+    <div class="auth-card" id="resetCard" style="display:none;">
+        <div class="auth-logo">Ani<span>News</span></div>
+        <h2>New Password</h2>
+        <form id="resetForm">
+            <div class="form-group">
+                <input type="password" id="newPassword" required minlength="6" style="padding-right: 60px;">
+                <label for="newPassword">New Password</label>
+                <span class="password-toggle" onclick="togglePassword('newPassword', this)">SHOW</span>
+            </div>
+            <div class="form-group">
+                <input type="password" id="confirmPassword" required minlength="6">
+                <label for="confirmPassword">Confirm Password</label>
+            </div>
+            <button type="submit" class="btn-primary">Update Password →</button>
+            <div id="resetError" class="error-message"></div>
+            <div id="resetSuccess" class="success-message"></div>
+        </form>
+    </div>
+
+</div><!-- /.login-container -->
+
+<script>
+    /* ─── Sakura Petals ─── */
+    (() => {
+        const container = document.getElementById('sakuraBg');
+        const count = 14;
+        for (let i = 0; i < count; i++) {
+            const p = document.createElement('div');
+            p.className = 'petal';
+            const left    = Math.random() * 100;
+            const delay   = Math.random() * 12;
+            const dur     = 8 + Math.random() * 10;
+            const size    = 8 + Math.random() * 10;
+            const drift   = -30 + Math.random() * 80;
+            p.style.cssText = `
+                left: ${left}%;
+                animation-duration: ${dur}s;
+                animation-delay: ${delay}s;
+                width: ${size}px;
+                height: ${size * 0.8}px;
+                --drift: ${drift}px;
+            `;
+            // Custom drift per petal
+            p.style.setProperty('--drift', `${drift}px`);
+            container.appendChild(p);
         }
 
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            const errorDiv = document.getElementById('loginError');
+        // Inject custom keyframe for individual drift
+        const style = document.createElement('style');
+        style.textContent = Array.from({length: count}, (_, i) => {
+            const d = -30 + Math.random() * 110;
+            return `.petal:nth-child(${i+1}) { animation-name: petal${i}; }
+@keyframes petal${i} {
+    0%   { opacity: 0; transform: translateX(0) translateY(-40px) rotate(0deg); }
+    10%  { opacity: 0.85; }
+    90%  { opacity: 0.3; }
+    100% { opacity: 0; transform: translateX(${d}px) translateY(105vh) rotate(${360+i*30}deg); }
+}`;
+        }).join('\n');
+        document.head.appendChild(style);
+    })();
 
-            try {
-                const response = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-                const data = await response.json();
-                if (data.status === 'success') {
-                    localStorage.setItem('first_login', 'true');
-                    window.location.replace('/');
-                } else {
-                    errorDiv.textContent = data.message;
-                    errorDiv.style.display = 'block';
-                }
-            } catch (err) {
-                errorDiv.textContent = "Connection error. Try again.";
-                errorDiv.style.display = 'block';
-            }
+    /* ─── URL params ─── */
+    const urlParams  = new URLSearchParams(window.location.search);
+    const resetToken = urlParams.get('token');
+
+    if (resetToken) {
+        showCard('resetCard');
+    } else {
+        fetch('/api/auth/me').then(r => r.json()).then(d => {
+            if (d.status === 'success') window.location.replace('/');
         });
+        showCard('loginCard');
+    }
 
-        document.getElementById('registerForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('regEmail').value;
-            const password = document.getElementById('regPassword').value;
-            const errorDiv = document.getElementById('regError');
-
-            try {
-                const response = await fetch('/api/auth/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password })
-                });
-                const data = await response.json();
-                if (data.status === 'success') {
-                    alert('Registration successful! Please login.');
-                    toggleAuth('login');
-                } else {
-                    errorDiv.textContent = data.message;
-                    errorDiv.style.display = 'block';
-                }
-            } catch (err) {
-                errorDiv.textContent = "Connection error. Try again.";
-                errorDiv.style.display = 'block';
-            }
+    /* ─── Card Switcher ─── */
+    function showCard(id) {
+        ['loginCard','registerCard','forgotCard','resetCard'].forEach(c => {
+            const el = document.getElementById(c);
+            if (el) el.style.display = 'none';
         });
-    </script>
+        const target = document.getElementById(id);
+        if (target) {
+            target.style.display = 'block';
+            target.style.animation = 'none';
+            target.offsetHeight; // reflow
+            target.style.animation = 'cardAppear 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards';
+        }
+    }
+
+    function toggleAuth(mode) { showCard(mode + 'Card'); }
+
+    /* ─── Password toggle ─── */
+    function togglePassword(id, btn) {
+        const inp = document.getElementById(id);
+        if (inp.type === 'password') { inp.type = 'text';     btn.textContent = 'HIDE'; }
+        else                         { inp.type = 'password'; btn.textContent = 'SHOW'; }
+    }
+
+    /* ─── Show/hide messages ─── */
+    function showError(id, msg) {
+        const el = document.getElementById(id);
+        el.textContent = msg;
+        el.style.display = 'block';
+        el.style.animation = 'none';
+        el.offsetHeight;
+        el.style.animation = 'shakeX 0.4s ease';
+    }
+
+    function hideMsg(...ids) { ids.forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; }); }
+
+    /* ─── Login ─── */
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('loginBtn');
+        const email    = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPassword').value;
+        hideMsg('loginError');
+        btn.textContent = 'Logging in…';
+        btn.classList.add('loading-state');
+
+        try {
+            const res  = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                if (document.getElementById('rememberMe').checked)
+                    localStorage.setItem('remembered_email', email);
+                localStorage.setItem('first_login', 'true');
+                // Quick bounce before redirect
+                const card = document.getElementById('loginCard');
+                card.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+                card.style.transform  = 'scale(1.04)';
+                setTimeout(() => {
+                    card.style.transform = 'scale(0.9)';
+                    card.style.opacity   = '0';
+                    setTimeout(() => window.location.replace('/'), 250);
+                }, 150);
+            } else {
+                btn.textContent = 'Login →';
+                btn.classList.remove('loading-state');
+                showError('loginError', data.message || 'Invalid credentials');
+            }
+        } catch {
+            btn.textContent = 'Login →';
+            btn.classList.remove('loading-state');
+            showError('loginError', 'Connection error. Please try again.');
+        }
+    });
+
+    /* ─── Register ─── */
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('registerBtn');
+        const email    = document.getElementById('regEmail').value;
+        const password = document.getElementById('regPassword').value;
+        hideMsg('regError');
+        btn.textContent = 'Creating account…';
+        btn.classList.add('loading-state');
+
+        try {
+            const res  = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            // BUG 6: check res.ok so HTTP 400 errors are shown, not silently dropped
+            if (res.ok && data.status === 'success') {
+                toggleAuth('login');
+                setTimeout(() => {
+                    const succ = document.createElement('div');
+                    succ.className = 'success-message';
+                    succ.textContent = '✓ Account created! Please log in.';
+                    succ.style.display = 'block';
+                    const loginForm = document.getElementById('loginForm');
+                    loginForm.appendChild(succ);
+                }, 400);
+            } else {
+                showError('regError', data.message || 'Registration failed');
+            }
+        } catch {
+            showError('regError', 'Connection error. Please try again.');
+        } finally {
+            btn.textContent = 'Create Account →';
+            btn.classList.remove('loading-state');
+        }
+    });
+
+    /* ─── Forgot Password ─── */
+    document.getElementById('forgotForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideMsg('forgotError','forgotSuccess');
+        const email = document.getElementById('forgotEmail').value;
+        try {
+            const res  = await fetch('/api/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                const s = document.getElementById('forgotSuccess');
+                s.textContent = data.message;
+                s.style.display = 'block';
+            } else {
+                showError('forgotError', data.message);
+            }
+        } catch {
+            showError('forgotError', 'Error sending reset link.');
+        }
+    });
+
+    /* ─── Reset Password ─── */
+    document.getElementById('resetForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideMsg('resetError','resetSuccess');
+        const password = document.getElementById('newPassword').value;
+        const confirm  = document.getElementById('confirmPassword').value;
+        if (password !== confirm) { showError('resetError', 'Passwords do not match.'); return; }
+
+        try {
+            const res  = await fetch('/api/auth/reset-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: resetToken, password })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                const s = document.getElementById('resetSuccess');
+                s.textContent = '✓ ' + data.message;
+                s.style.display = 'block';
+                setTimeout(() => toggleAuth('login'), 2200);
+            } else {
+                showError('resetError', data.message);
+            }
+        } catch {
+            showError('resetError', 'Error resetting password.');
+        }
+    });
+
+    /* ─── Pre-fill remembered email ─── */
+    const saved = localStorage.getItem('remembered_email');
+    if (saved) {
+        const inp = document.getElementById('loginEmail');
+        inp.value = saved;
+        inp.classList.add('has-value');
+        document.getElementById('rememberMe').checked = true;
+    }
+
+    /* ─── has-value class for floating labels ─── */
+    document.querySelectorAll('.form-group input').forEach(input => {
+        input.addEventListener('input', () => {
+            input.classList.toggle('has-value', input.value.length > 0);
+        });
+        // Initialise state for pre-filled inputs
+        if (input.value.length > 0) input.classList.add('has-value');
+    });
+</script>
 </body>
-
 </html>

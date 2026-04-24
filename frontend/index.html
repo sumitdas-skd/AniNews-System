@@ -1,123 +1,150 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AniNews | Latest Updates</title>
+    <title>AniNews | Home</title>
+    <meta name="description" content="Track the latest anime releases, trending shows, and build your watchlist on AniNews.">
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Outfit:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 </head>
-
 <body>
-    <div class="main-layout">
-        <aside class="sidebar">
-            <div class="logo">Ani<span>News</span></div>
-            <nav>
-                <a href="javascript:void(0)" class="active" data-mode="home"
-                    onclick="fetchAnime('home', false, true)">🏠
-                    <span>Home</span></a>
-                <a href="javascript:void(0)" data-mode="trending" onclick="fetchAnime('trending', false, true)">🔥
-                    <span>Trending</span></a>
-                <a href="javascript:void(0)" data-mode="Action & Adventure"
-                    onclick="fetchAnime('Action & Adventure', false, true)">⚔️
-                    <span>Action</span></a>
-                <a href="javascript:void(0)" data-mode="Romance" onclick="fetchAnime('Romance', false, true)">💖
-                    <span>Romance</span></a>
-                <a href="javascript:void(0)" data-mode="Fantasy" onclick="fetchAnime('Fantasy', false, true)">🪄
-                    <span>Fantasy</span></a>
-                <a href="javascript:void(0)" data-mode="Supernatural & Horror"
-                    onclick="fetchAnime('Supernatural & Horror', false, true)">👻
-                    <span>Horror</span></a>
-                <a href="javascript:void(0)" data-mode="Isekai" onclick="fetchAnime('Isekai', false, true)">🌀
-                    <span>Isekai</span></a>
-                <a href="javascript:void(0)" data-mode="watchlist" onclick="fetchAnime('watchlist', false, true)">🔖
-                    <span>My
-                        List</span></a>
-                <a href="/admin" id="adminLink" style="display: none;">⚙️ <span>Admin</span></a>
-            </nav>
-            <div id="notifyBanner" class="notify-banner">
-                🔔 Enable Alerts
-            </div>
-            <div id="userProfile" class="user-profile">
-                <!-- Logged in status will be injected here -->
-                <a href="/login">🔑 Login</a>
-            </div>
-        </aside>
-
-        <main>
-            <header>
-                <div class="search-bar">
-                    <div class="search-input-wrapper">
-                        <input type="text" id="searchInput" placeholder="Search anime...">
-                        <button id="clearSearchBtn" title="Clear Search" style="right: 15px;">×</button>
-                    </div>
-                </div>
-                <div class="user-actions">
-                    <select id="categoryFilter">
-                        <option value="">All Genres</option>
-                        <option value="Action & Adventure">Action & Adventure</option>
-                        <option value="Slice of Life">Slice of Life</option>
-                        <option value="Fantasy">Fantasy</option>
-                        <option value="Dark Fantasy">Dark Fantasy</option>
-                        <option value="Sci-Fi & Mecha">Sci-Fi & Mecha</option>
-                        <option value="Romance">Romance</option>
-                        <option value="Supernatural & Horror">Supernatural & Horror</option>
-                        <option value="Sports">Sports</option>
-                        <option value="Isekai">Isekai</option>
-                        <option value="Mahou Shoujo">Mahou Shoujo</option>
-                        <option value="Iyashikei">Iyashikei</option>
-                        <option value="Harem / Reverse Harem">Harem / Reverse Harem</option>
-                        <option value="Ecchi">Ecchi</option>
-                        <option value="Korean">Korean</option>
-                        <option value="Chinese">Chinese</option>
-                        <option value="Japanese">Japanese</option>
-                    </select>
-                    <select id="statusFilter">
-                        <option value="">All Status</option>
-                        <option value="Upcoming">Upcoming</option>
-                        <option value="Ongoing">Ongoing</option>
-                        <option value="Completed">Completed</option>
-                    </select>
-                </div>
-            </header>
-
-            <div class="container">
-                <div id="animeGrid" class="anime-grid">
-                    <!-- Cards will be injected here -->
-                    <div class="loading">Fetching latest updates...</div>
-                </div>
-                <div class="pagination-wrapper" style="text-align:center; margin-top:3rem;">
-                    <button id="loadMoreBtn" onclick="loadMore()">Load More Anime</button>
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <!-- Permission Modal -->
-    <div id="permissionModal" class="modal">
-        <div class="modal-content permissions-card">
-            <div class="modal-header">
-                <h2>Enable Features</h2>
-                <p>Allow AniNews to access the following for a better experience</p>
-            </div>
-            <div class="permission-list">
-                <div class="permission-item">
-                    <div class="perm-info">
-                        <h3>📅 System Calendar</h3>
-                        <p>Directly mark release dates in your system calendar</p>
-                    </div>
-                    <button onclick="requestCalendarPermission()" id="calPermBtn">Allow</button>
-                </div>
-            </div>
-            <button class="btn-primary" onclick="closePermissions()" style="margin-top: 2rem; width: 100%;">Continue to
-                Website</button>
+<div class="main-layout">
+    <!-- ─── SIDEBAR ─── -->
+    <aside class="sidebar">
+        <div class="logo">Ani<span>News</span></div>
+        <nav>
+            <a href="javascript:void(0)" class="active" data-mode="home" onclick="fetchAnime('home',false,true)">Home</a>
+            <a href="javascript:void(0)" data-mode="trending" onclick="fetchAnime('trending',false,true)">Trending</a>
+            <a href="javascript:void(0)" data-mode="Action &amp; Adventure" onclick="fetchAnime('Action &amp; Adventure',false,true)">Action</a>
+            <a href="javascript:void(0)" data-mode="Romance" onclick="fetchAnime('Romance',false,true)">Romance</a>
+            <a href="javascript:void(0)" data-mode="Fantasy" onclick="fetchAnime('Fantasy',false,true)">Fantasy</a>
+            <a href="javascript:void(0)" data-mode="Supernatural &amp; Horror" onclick="fetchAnime('Supernatural &amp; Horror',false,true)">Horror</a>
+            <a href="javascript:void(0)" data-mode="Isekai" onclick="fetchAnime('Isekai',false,true)">Isekai</a>
+            <a href="javascript:void(0)" data-mode="watchlist" onclick="fetchAnime('watchlist',false,true)">My List</a>
+            <a href="/admin" id="adminLink" style="display:none;">Admin</a>
+        </nav>
+        <div id="notifyBanner" class="notify-banner">Enable Alerts</div>
+        <div id="lastUpdatedBanner" class="last-updated-banner"></div>
+        <div id="userProfile" class="user-profile">
+            <a href="/login">Login</a>
         </div>
+    </aside>
+
+    <!-- ─── MAIN ─── -->
+    <main>
+        <!-- TOP HEADER / NAV BAR -->
+        <header id="mainHeader">
+            <div class="search-bar">
+                <div class="search-input-wrapper">
+                    <input type="text" id="searchInput" placeholder="Search anime, genres…">
+                    <button id="searchClear" title="Clear">×</button>
+                </div>
+            </div>
+            <div class="user-actions">
+                <select id="categoryFilter">
+                    <option value="">All Genres</option>
+                    <option value="Action &amp; Adventure">Action &amp; Adventure</option>
+                    <option value="Slice of Life">Slice of Life</option>
+                    <option value="Fantasy">Fantasy</option>
+                    <option value="Dark Fantasy">Dark Fantasy</option>
+                    <option value="Sci-Fi &amp; Mecha">Sci-Fi &amp; Mecha</option>
+                    <option value="Romance">Romance</option>
+                    <option value="Supernatural &amp; Horror">Supernatural &amp; Horror</option>
+                    <option value="Sports">Sports</option>
+                    <option value="Isekai">Isekai</option>
+                    <option value="Mahou Shoujo">Mahou Shoujo</option>
+                    <option value="Iyashikei">Iyashikei</option>
+                    <option value="Harem / Reverse Harem">Harem / Reverse Harem</option>
+                    <option value="Ecchi">Ecchi</option>
+                    <option value="Korean">Korean</option>
+                    <option value="Chinese">Chinese</option>
+                    <option value="Japanese">Japanese</option>
+                </select>
+                <select id="statusFilter">
+                    <option value="">All Status</option>
+                    <option value="Upcoming">Upcoming</option>
+                    <option value="Ongoing">Ongoing</option>
+                    <option value="Completed">Completed</option>
+                </select>
+            </div>
+        </header>
+
+        <!-- HERO BANNER -->
+        <div class="hero-banner" id="heroBanner">
+            <!-- Sakura Petals -->
+            <div class="sakura-container" id="sakuraContainer"></div>
+            <!-- Slides injected by JS -->
+            <div class="hero-dots" id="heroDots"></div>
+        </div>
+
+        <!-- CONTENT AREA -->
+        <div class="container">
+            <!-- Trending Section (Top 10 Compact) -->
+            <div class="section-block" id="trendingSection" style="display:none;">
+                <div class="section-header">
+                    <h2 class="section-title">🔥 Top Trending Now</h2>
+                    <button class="section-see-all" onclick="fetchAnime('trending',false,true)">See All →</button>
+                </div>
+                <div class="trending-list" id="trendingList"></div>
+            </div>
+
+            <!-- Popular Ongoing Section -->
+            <div class="section-block" id="ongoingSection" style="display:none;">
+                <div class="section-header">
+                    <h2 class="section-title">📡 Popular Ongoing</h2>
+                    <button class="section-see-all" onclick="filterByStatus('Ongoing')">See All →</button>
+                </div>
+                <div class="scroll-row" id="ongoingScrollRow"></div>
+            </div>
+
+            <!-- Popular Completed Section -->
+            <div class="section-block" id="completedSection" style="display:none;">
+                <div class="section-header">
+                    <h2 class="section-title">✅ Popular Completed</h2>
+                    <button class="section-see-all" onclick="filterByStatus('Completed')">See All →</button>
+                </div>
+                <div class="scroll-row" id="completedScrollRow"></div>
+            </div>
+
+            <!-- Main Grid -->
+            <div class="section-block">
+                <div class="section-header">
+                    <h2 class="section-title" id="mainGridTitle">🌸 All Anime</h2>
+                </div>
+                <div id="animeGrid" class="anime-grid">
+                    <div class="loading"><span>Loading…</span></div>
+                </div>
+                <div class="pagination-wrapper">
+                    <button id="loadMoreBtn" style="display:none;" onclick="loadMore()">Load More ↓</button>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- PERMISSION MODAL -->
+<div id="permissionModal" class="modal">
+    <div class="modal-content permissions-card">
+        <div class="modal-header">
+            <h2>✨ Enable Features</h2>
+            <p>Allow AniNews to access the following for a better experience</p>
+        </div>
+        <div class="permission-list">
+            <div class="permission-item">
+                <div class="perm-info">
+                    <h3>📅 System Calendar</h3>
+                    <p>Mark release dates directly in your calendar</p>
+                </div>
+                <button onclick="requestCalendarPermission()" id="calPermBtn">Allow</button>
+            </div>
+        </div>
+        <button class="modal-continue-btn" onclick="closePermissions()">Continue to AniNews →</button>
     </div>
+</div>
 
-    <script src="app.js"></script>
+<script src="app.js"></script>
 </body>
-
 </html>

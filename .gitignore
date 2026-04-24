@@ -28,3 +28,10 @@ Thumbs.db
 # Flask and other env vars
 .env
 instance/
+
+# Temporary scratch scripts and extra DBs
+fix_*.py
+backfill.py
+backend/*.db
+backend/*.db-*
+*.log

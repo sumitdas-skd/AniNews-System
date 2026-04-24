@@ -63,25 +63,47 @@ def fetch_anime_paged(query, variables, max_pages=5):
         if max_pages is not None and current_page > max_pages:
             break
             
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json'
+        }
+        
         variables['page'] = current_page
-        try:
-            response = requests.post(ANILIST_API_URL, json={'query': query, 'variables': variables})
-            if response.status_code == 429:
-                print("Rate limited. Sleeping for 10 seconds...")
-                time.sleep(10)
-                continue
+        retries = 0
+        success = False
+        
+        while retries < 3 and not success:
+            try:
+                response = requests.post(ANILIST_API_URL, json={'query': query, 'variables': variables}, headers=headers, timeout=15)
                 
-            response.raise_for_status()
-            data = response.json()
-            media = data['data']['Page']['media']
-            if not media:
-                break
-            all_media.extend(media)
-            current_page += 1
-            time.sleep(0.5) # Gentle delay between pages
-        except Exception as e:
-            print(f"Error fetching page {current_page}: {e}")
+                if response.status_code in [403, 429]:
+                    sleep_time = 15 * (2 ** retries)
+                    print(f"AniList API returned {response.status_code}. Sleeping for {sleep_time} seconds...")
+                    time.sleep(sleep_time)
+                    retries += 1
+                    continue
+                    
+                response.raise_for_status()
+                data = response.json()
+                media = data['data']['Page']['media']
+                
+                if not media:
+                    return all_media # No more data
+                    
+                all_media.extend(media)
+                success = True
+                
+            except Exception as e:
+                print(f"Error fetching page {current_page}: {e}")
+                time.sleep(5)
+                retries += 1
+                
+        if not success:
+            print(f"Failed to fetch page {current_page} after {retries} retries. Stopping pagination.")
             break
+            
+        current_page += 1
+        time.sleep(1.0) # Gentle delay between successful pages
             
     return all_media
 
@@ -460,7 +482,9 @@ def update_database(custom_list=None):
         new_trending_rank = index + 1 if is_global_trending else None
         
         anilist_id = item['id']
-        title = item['title']['english'] or item['title']['romaji'] or item['title']['native'] or "Unknown Title"
+        title_english = item['title'].get('english')
+        title_romaji = item['title'].get('romaji')
+        title = title_english or title_romaji or item['title'].get('native') or "Unknown Title"
         status_map = {
             'FINISHED': 'Completed',
             'RELEASING': 'Ongoing',
@@ -538,24 +562,27 @@ def update_database(custom_list=None):
                     episodes_current = ?, last_episode_number = ?, last_episode_name = ?,
                     next_episode_date = ?, studio = ?, rating_score = ?, 
                     rating_votes = ?, genres = ?, trending_rank = ?, is_adult = ?, 
+                    title_english = ?, title_romaji = ?,
                     updated_at = CURRENT_TIMESTAMP, is_approved = 1
                 WHERE anilist_id = ?
             ''', (status, release_date, country, episodes_total, episodes_current, 
                   last_episode_number, last_episode_name, next_episode_date, 
-                  studio, rating_score, rating_votes, genres_str, final_trending_rank, is_adult, anilist_id))
+                  studio, rating_score, rating_votes, genres_str, final_trending_rank, is_adult,
+                  title_english, title_romaji, anilist_id))
             updates += 1
         else:
             # Auto-approve ALL from trusted source
             is_approved = 1
                 
             cursor.execute('''
-                INSERT INTO anime (anilist_id, title, release_date, status, description, poster_url, country, 
+                INSERT INTO anime (anilist_id, title, title_english, title_romaji, release_date, status, description, poster_url, country, 
                                  is_approved, episodes_total, episodes_current, last_episode_number, 
                                  last_episode_name, next_episode_date, studio, rating_score, rating_votes, genres, trending_rank, is_adult)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (anilist_id, title, release_date, status, description, poster_url, country, 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (anilist_id, title, title_english, title_romaji, release_date, status, description, poster_url, country, 
                   is_approved, episodes_total, episodes_current, last_episode_number, 
                   last_episode_name, next_episode_date, studio, rating_score, rating_votes, genres_str, final_trending_rank, is_adult))
+
             anime_id = cursor.lastrowid
             new_entries += 1
             

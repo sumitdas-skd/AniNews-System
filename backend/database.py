@@ -29,6 +29,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             anilist_id INTEGER UNIQUE,
             title TEXT NOT NULL,
+            title_english TEXT,
+            title_romaji TEXT,
             poster_url TEXT,
             status TEXT,
             description TEXT,
@@ -53,6 +55,8 @@ def init_db():
     
     # Migration: Add columns if they don't exist
     columns = [
+        ('title_english', 'TEXT'),
+        ('title_romaji', 'TEXT'),
         ('episodes_total', 'INTEGER'),
         ('episodes_current', 'INTEGER'),
         ('last_episode_number', 'INTEGER'),
@@ -154,6 +158,8 @@ def init_db():
         ("users", "role", "TEXT DEFAULT 'user'"),
         ("users", "username", "TEXT"),
         ("users", "last_seen", "TIMESTAMP"),
+        ("users", "reset_token", "TEXT"),
+        ("users", "reset_token_expiry", "TIMESTAMP"),
         ("reviews", "user_id", "INTEGER"),
         ("reminders", "last_notified_episode", "INTEGER DEFAULT 0")
     ]

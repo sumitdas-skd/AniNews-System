@@ -1,5 +1,13 @@
 let currentAnime = null;
 
+/* FEATURE 1: Always prefer English title when available */
+function getTitle(anime) {
+    if (!anime) return '';
+    const eng = anime.title_english || anime.display_title;
+    if (eng && eng.trim() !== '' && eng.toLowerCase() !== 'null') return eng;
+    return anime.title || '';
+}
+
 async function fetchDetail() {
     const urlParams = new URLSearchParams(window.location.search);
     const animeId = urlParams.get('id');
@@ -19,6 +27,7 @@ async function fetchDetail() {
         }
 
         currentAnime = anime;
+        document.title = `AniNews | ${getTitle(anime)}`;
         renderDetail(anime);
 
         // Fire all secondary requests simultaneously — no sequential waterfall
@@ -35,9 +44,14 @@ async function fetchDetail() {
 function renderDetail(anime) {
     const container = document.getElementById('detailContainer');
 
-    // Ratings Star UI
+    // Ratings Star UI — Unicode ★ with gold/dim colours
     const score = anime.rating_score || 0;
-    const stars = '⭐'.repeat(Math.round(score / 2)) + '☆'.repeat(5 - Math.round(score / 2));
+    const filledCount = Math.round(score / 2);
+    const stars = '<span style="color:#ffd700;font-size:18px;">'
+        + '★'.repeat(filledCount)
+        + '</span><span style="color:rgba(255,255,255,0.2);font-size:18px;">'
+        + '☆'.repeat(5 - filledCount)
+        + '</span>';
 
     let ratingDisplay = '';
     if (anime.rating_score) {
@@ -70,43 +84,36 @@ function renderDetail(anime) {
         startCountdown(anime.next_episode_date);
     }
 
-    // Episodes List from relational list
+    // Episodes List — BUG 3: hianime-style compact number grid
     let episodeHtml = '';
     const episodes = anime.episodes_list || [];
-    if (episodes.length > 0) {
+    const EP_PAGE_SIZE = 100;
+
+    // Build synthetic list if no detailed episode list available
+    // Determine the max number of episodes to generate if episodes_list is empty
+    const maxEps = Math.max(anime.episodes_total || 0, anime.episodes_current || anime.last_episode_number || 0);
+    
+    let allEps = episodes.length > 0
+        ? episodes
+        : (anime.status === 'Completed' || anime.status === 'Ongoing') && maxEps > 0
+            ? Array.from({ length: maxEps }, (_, i) => ({ episode_number: i + 1 }))
+            : [];
+
+    if (allEps.length > 0) {
+        // Store globally for re-render on page/jump change
+        window._allEpisodes = allEps;
+        window._currentEp   = 1;
+        window._epPageSize  = EP_PAGE_SIZE;
+
         episodeHtml = `
             <div class="episodes-section">
-                <h3>Episode List</h3>
-                <div class="episodes-grid">
-                    ${episodes.map(ep => `<div class="episode-item" title="${ep.episode_name || ''}">EP ${ep.episode_number}<br><small style="font-size:0.7rem;">${ep.episode_name || ''}</small></div>`).join('')}
+                <div class="sec-header">
+                    <h3 class="sec-title">Episode List</h3>
+                    <span class="ep-count">${allEps.length} episodes</span>
                 </div>
+                <div id="episodeSection">${buildEpGrid(allEps, 0, 1, EP_PAGE_SIZE)}</div>
             </div>
         `;
-    } else if (anime.status === 'Completed' || anime.status === 'Ongoing') {
-        const total = anime.episodes_total || 0;
-        if (total > 0) {
-            if (total > 100) {
-                episodeHtml = `
-                    <div class="episodes-section">
-                        <h3>Episode List</h3>
-                        <p style="color: var(--text-dim); margin-bottom: 1rem;">This series has ${total} episodes. Browsing the full list may slow down your experience.</p>
-                        <button class="view-btn" onclick="this.nextElementSibling.style.display='grid'; this.remove()">View All ${total} Episodes</button>
-                        <div class="episodes-grid" style="display: none;">
-                            ${Array.from({ length: total }, (_, i) => `<div class="episode-item">EP ${i + 1}</div>`).join('')}
-                        </div>
-                    </div>
-                `;
-            } else {
-                episodeHtml = `
-                    <div class="episodes-section">
-                        <h3>Episode List</h3>
-                        <div class="episodes-grid">
-                            ${Array.from({ length: total }, (_, i) => `<div class="episode-item">EP ${i + 1}</div>`).join('')}
-                        </div>
-                    </div>
-                `;
-            }
-        }
     }
 
     // Comments Section (Only for released anime)
@@ -115,43 +122,45 @@ function renderDetail(anime) {
         reviewsHtml = `
             <div class="reviews-section">
                 <h3>Comments</h3>
-                <div id="reviewsList">Loading comments...</div>
-                <div class="add-review-form" style="margin-top: 2rem; background: var(--glass-bg); padding: 1.5rem; border-radius: 15px;">
-                    <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
-                        <span style="color: var(--text-dim);">Your Rating:</span>
-                        <select id="ratingInput" style="padding: 0.5rem; border-radius: 5px; background: rgba(255,255,255,0.1); color: white; border: 1px solid var(--glass-border);">
-                            <option value="5">⭐⭐⭐⭐⭐ (Excellent)</option>
-                            <option value="4">⭐⭐⭐⭐ (Good)</option>
-                            <option value="3">⭐⭐⭐ (Average)</option>
-                            <option value="2">⭐⭐ (Poor)</option>
-                            <option value="1">⭐ (Terrible)</option>
+                <div class="comment-box-wrap">
+                    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem;">
+                        <span style="color:var(--text-muted);font-size:0.85rem;">Rating:</span>
+                        <select id="ratingInput" style="padding:0.4rem 0.6rem;border-radius:6px;background:rgba(255,255,255,0.08);color:white;border:1px solid rgba(255,255,255,0.15);">
+                            <option value="5">&#11088;&#11088;&#11088;&#11088;&#11088; Excellent</option>
+                            <option value="4">&#11088;&#11088;&#11088;&#11088; Good</option>
+                            <option value="3">&#11088;&#11088;&#11088; Average</option>
+                            <option value="2">&#11088;&#11088; Poor</option>
+                            <option value="1">&#11088; Terrible</option>
                         </select>
                     </div>
-                    <textarea id="commentInput" placeholder="Write a comment..." style="width:100%; height:100px; padding:1rem; border-radius:10px; background: rgba(255,255,255,0.05); color:white; border:1px solid var(--glass-border); margin-bottom:1rem;"></textarea>
-                    <button class="view-btn" style="padding:0.8rem 2rem;" onclick="submitComment()">Post Comment</button>
+                    <textarea id="commentInput" class="comment-input" placeholder="Share your thoughts..."></textarea>
+                    <button class="comment-btn" onclick="submitComment()">Post Comment</button>
+                </div>
+                <div class="comments-list" id="reviewsList">
+                    <div class="no-comments">No comments yet. Be the first!</div>
                 </div>
             </div>
         `;
     } else {
         reviewsHtml = `
-            <div class="reviews-section" style="opacity: 0.6;">
+            <div class="reviews-section" style="opacity:0.6;">
                 <h3>Comments</h3>
                 <p>Comments will be enabled once the first episode is released.</p>
             </div>
         `;
     }
 
-    // Streaming Platforms section
+    // Streaming Platforms — clean pill badges, no emoji
     let streamingHtml = '';
     const platforms = anime.streaming_platforms || [];
     if (platforms.length > 0) {
         streamingHtml = `
             <div class="streaming-section">
                 <h3>Where to Watch</h3>
-                <div class="streaming-links" style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+                <div class="streaming-links" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem;">
                     ${platforms.map(p => `
-                        <a href="${p.url}" target="_blank" class="streaming-btn">
-                            📺 ${p.platform_name}
+                        <a href="${p.url}" target="_blank" class="streaming-pill">
+                            ${p.platform_name}
                         </a>
                     `).join('')}
                 </div>
@@ -166,57 +175,66 @@ function renderDetail(anime) {
         `;
     }
 
-    const reminderBtn = anime.status === 'Completed' ? '' : `<button class="reminder-btn" style="width:100%; padding:1rem;" onclick="openReminderModal()">🔔 Remind Me</button>`;
+    // Hero cover image with fallback gradient
+    const coverImgHtml = anime.poster_url
+        ? `<img src="${anime.poster_url}" alt="${getTitle(anime)}"
+               style="width:200px;height:280px;object-fit:cover;border-radius:12px;
+                      box-shadow:0 8px 32px rgba(0,0,0,0.6);flex-shrink:0;">`
+        : `<div style="width:200px;height:280px;border-radius:12px;flex-shrink:0;
+                       background:linear-gradient(135deg,#1a1a2e,#2d1b4e);
+                       display:flex;align-items:center;justify-content:center;
+                       text-align:center;padding:1rem;font-weight:700;
+                       color:rgba(255,255,255,0.6);font-size:0.9rem;">${getTitle(anime)}</div>`;
+
+    const reminderBtnHtml = anime.status === 'Completed' ? '' : `
+        <button class="detail-remind-btn" onclick="openReminderModal()">🔔 Remind Me</button>`;
 
     container.innerHTML = `
-        <div class="detail-sidebar">
-            <img src="${anime.poster_url}" class="detail-poster" alt="${anime.title}">
-            
-            <div style="margin-top: 2rem;">
-                <span class="status-badge status-${anime.status}" style="margin-bottom: 0.5rem; display: inline-block;">${anime.status}</span>
-                <h1 style="font-size: 2rem; margin-bottom: 1rem; line-height: 1.2;">${anime.title}</h1>
-                <div class="meta-row" style="flex-direction: column; gap: 0.5rem; align-items: flex-start; margin-bottom: 1rem;">
+        <div class="detail-hero" style="display:flex;gap:2rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:2rem;">
+            ${coverImgHtml}
+            <div style="flex:1;min-width:220px;">
+                <span class="status-badge status-${anime.status}" style="margin-bottom:0.75rem;display:inline-block;">${anime.status}</span>
+                <h1 style="font-size:2rem;margin-bottom:1rem;line-height:1.2;">${getTitle(anime)}</h1>
+                <div class="meta-row" style="flex-direction:column;gap:0.5rem;align-items:flex-start;margin-bottom:1rem;">
                     <span class="meta-item">🏢 ${anime.studio || 'Unknown'}</span>
-                    <span class="meta-item">📺 ${anime.episodes_total || 'TBA'} Episodes</span>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        ${genreHtml}
+                    <span class="meta-item">🎬 ${anime.episodes_total || 'TBA'} Episodes</span>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">${genreHtml}</div>
+                </div>
+
+                <div class="rating-box" style="margin:1.5rem 0;display:flex;align-items:center;gap:1rem;">
+                    <div class="rating-score">${score ? score.toFixed(1) : '—'}</div>
+                    <div>
+                        <div>${stars}</div>
+                        <p style="color:var(--text-muted);font-size:0.8rem;margin-top:0.25rem;">${ratingDisplay}</p>
                     </div>
                 </div>
-            </div>
 
-            <div class="rating-box" style="margin: 1.5rem 0;">
-                <div class="rating-score">${score ? score.toFixed(1) : '—'}</div>
-                <div>
-                    <div style="color: #facc15;">${stars}</div>
-                    <p style="color: var(--text-dim); font-size: 0.8rem;">${ratingDisplay}</p>
+                ${countdownHtml}
+
+                <div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem;">
+                    ${reminderBtnHtml}
+                    <button id="watchlistDetailBtn" class="detail-watchlist-btn" onclick="toggleWatchlistDetail(${anime.id})">
+                        🔖 Add to My List
+                    </button>
                 </div>
             </div>
-
-            ${countdownHtml}
-            ${reminderBtn}
-            
-            <button id="watchlistDetailBtn" class="reminder-btn" style="width:100%; padding:1rem; margin-top: 1rem; border-color: var(--primary); color: var(--primary);" onclick="toggleWatchlistDetail(${anime.id})">
-                🔖 Add to My List
-            </button>
         </div>
 
         <div class="detail-info">
-            <div class="streaming-section">
-                ${streamingHtml}
-            </div>
+            ${streamingHtml}
 
-            <div style="margin-top: 3rem;">
+            <div style="margin-top:3rem;">
                 <div class="description">
                     <h3>Synopsis</h3>
-                    <p style="line-height:1.8; margin-top:1.2rem;">${anime.description || 'No synopsis available.'}</p>
+                    <p style="line-height:1.8;margin-top:1.2rem;">${anime.description || 'No synopsis available.'}</p>
                 </div>
             </div>
 
-            <div style="margin-top: 3rem;">
+            <div style="margin-top:3rem;">
                 ${episodeHtml}
             </div>
 
-            <div style="margin-top: 3rem;">
+            <div style="margin-top:3rem;">
                 ${reviewsHtml}
             </div>
         </div>
@@ -280,40 +298,54 @@ async function fetchReviews(animeId) {
 async function fetchRelated(animeId) {
     try {
         const response = await fetch(`/api/anime/${animeId}/related`);
-        const related = await response.json();
+        const related  = await response.json();
 
-        if (related.length === 0) {
-            const sidebar = document.querySelector('.detail-info');
-            const section = document.createElement('div');
-            section.style.marginTop = '3rem';
-            section.innerHTML = '<h3>Related Anime</h3><p style="color: var(--text-dim); margin-top: 1rem;">No related anime available.</p>';
-            sidebar.appendChild(section);
+        const container = document.querySelector('.containerRelated');
+        if (!container) return;
+
+        const section = document.createElement('div');
+        section.className = 'related-section';
+
+        if (!related || related.length === 0) {
+            section.innerHTML = '<h3 style="margin-top:3rem;">Related Anime</h3><p style="color:rgba(255,255,255,0.3);margin-top:1rem;">No related anime found.</p>';
+            container.appendChild(section);
             return;
         }
 
-        const sidebar = document.querySelector('.detail-info');
-        const section = document.createElement('div');
-        section.className = 'related-section';
+        // FEATURE 3: Horizontal-scroll card row
         section.innerHTML = `
-            <h3 style="margin-top: 3rem;">Related Anime</h3>
-            <div class="related-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; margin-top: 1.5rem;">
-                ${related.map(a => `
-                    <a href="/detail.html?id=${a.id}" class="card-link">
-                        <div class="anime-card compact" style="animation: none; margin:0;">
-                            <span class="status-badge" style="font-size: 0.6rem; padding: 0.2rem 0.5rem;">${a.status}</span>
-                            <img src="${a.poster_url}" style="height:200px; width:100%; object-fit:cover; border-radius:10px;">
-                            <div style="padding: 0.5rem;">
-                                <h4 style="font-size: 0.85rem; margin-bottom: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${a.title}</h4>
-                                <span style="color: #facc15; font-size: 0.75rem;">⭐ ${a.rating_score ? a.rating_score.toFixed(1) : (a.status === 'Upcoming' ? 'Upcoming' : 'Rating not available')}</span>
-                            </div>
+            <div class="rel-header">
+                <h3 class="rel-title">You Might Also Like</h3>
+                <span class="rel-sub">Based on genres</span>
+            </div>
+            <div class="rel-scroll">
+                ${related.map(a => {
+                    const title = getTitle(a);
+                    const img   = a.cover_image || a.poster_url || '';
+                    const score = a.rating_score ? parseFloat(a.rating_score).toFixed(1) : null;
+                    const statusLow = (a.status || '').toLowerCase();
+                    let firstGenre = '';
+                    try { firstGenre = JSON.parse(a.genres || '[]')[0] || ''; } catch { firstGenre = (a.genres || '').split(',')[0]?.trim() || ''; }
+                    return `
+                    <a href="/detail.html?id=${a.id}" class="rel-card">
+                        <div class="rel-poster">
+                            ${img
+                                ? `<img src="${img}" alt="${title}" loading="lazy" onerror="this.style.display='none'">`
+                                : `<div class="rel-noimg">${title.substring(0,2)}</div>`
+                            }
+                            ${a.status === 'Ongoing' && a.episodes_current ? `<span class="ep-badge-overlay" style="bottom:4px;left:4px;font-size:0.6rem;">EP ${a.episodes_current}</span>` : (a.episodes_total ? `<span class="ep-badge-overlay" style="bottom:4px;left:4px;font-size:0.6rem;">${a.episodes_total} EP</span>` : '')}
+                            ${score ? `<div class="rel-score">&#9733; ${score}</div>` : ''}
+                            ${a.status ? `<div class="rel-status rel-${statusLow}">${a.status}</div>` : ''}
                         </div>
-                    </a>
-                `).join('')}
+                        <div class="rel-name">${title}</div>
+                        ${firstGenre ? `<div class="rel-genre">${firstGenre}</div>` : ''}
+                    </a>`;
+                }).join('')}
             </div>
         `;
-        sidebar.appendChild(section);
-    } catch (error) {
-        console.error('Related fetch failed');
+        container.appendChild(section);
+    } catch (err) {
+        console.error('fetchRelated error', err);
     }
 }
 
@@ -343,11 +375,28 @@ async function submitComment() {
 // Reminder Buttons simplified logic is already present in detail.js as reminderOptionA (Calendar) and reminderOptionB (Gmail). 
 // The modal in detail.html was updated in previous steps to only show these two.
 function openReminderModal() {
-    document.getElementById('reminderModal').style.display = 'block';
+    document.getElementById('reminderModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    // BUG 1 Fix 3: populate next episode date, default to TBA
+    const el = document.getElementById('nextEpTime');
+    if (el && currentAnime) {
+        const dateStr = currentAnime.next_episode_date || currentAnime.release_date;
+        if (dateStr && dateStr !== 'TBA' && dateStr !== 'null') {
+            const d = new Date(dateStr);
+            el.textContent = isNaN(d.getTime())
+                ? dateStr
+                : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        } else {
+            el.textContent = 'TBA';
+        }
+    } else if (el) {
+        el.textContent = 'TBA';
+    }
 }
 
 function closeReminderModal() {
-    document.getElementById('reminderModal').style.display = 'none';
+    document.getElementById('reminderModal').classList.remove('open');
+    document.body.style.overflow = '';
 }
 
 async function reminderOptionA() {
@@ -359,7 +408,7 @@ async function reminderOptionA() {
         // directly (Safari, Chrome, etc. all support this for direct marking).
         window.location.href = calendarUrl;
     } else {
-        const title = currentAnime.title;
+        const title = getTitle(currentAnime);
         const date = currentAnime.next_episode_date || currentAnime.release_date;
         const start = new Date(date);
         const end = new Date(start.getTime() + 30 * 60 * 1000);
@@ -387,7 +436,7 @@ async function reminderOptionB() {
 
 window.onclick = function (event) {
     const modal = document.getElementById('reminderModal');
-    if (event.target == modal) closeReminderModal();
+    if (event.target === modal) closeReminderModal();
 }
 
 async function checkWatchlist(animeId) {
@@ -395,15 +444,16 @@ async function checkWatchlist(animeId) {
         const response = await fetch(`/api/watchlist/check/${animeId}`);
         const data = await response.json();
         const btn = document.getElementById('watchlistDetailBtn');
-        if (data.in_watchlist) {
-            btn.innerHTML = '🔖 Remove from My List';
+        if (btn && data.in_watchlist) {
+            btn.innerHTML = '✓ In My List';
+            btn.setAttribute('data-in-list', 'true');
         }
     } catch (err) { }
 }
 
 async function toggleWatchlistDetail(animeId) {
     const btn = document.getElementById('watchlistDetailBtn');
-    const isRemove = btn.innerHTML.includes('Remove');
+    const isRemove = btn.getAttribute('data-in-list') === 'true';
 
     try {
         const response = await fetch('/api/watchlist', {
@@ -413,7 +463,13 @@ async function toggleWatchlistDetail(animeId) {
         });
         const data = await response.json();
         if (data.status === 'success') {
-            btn.innerHTML = isRemove ? '🔖 Add to My List' : '🔖 Remove from My List';
+            if (isRemove) {
+                btn.innerHTML = '🔖 Add to My List';
+                btn.removeAttribute('data-in-list');
+            } else {
+                btn.innerHTML = '✓ In My List';
+                btn.setAttribute('data-in-list', 'true');
+            }
         }
     } catch (err) { }
 }
@@ -464,6 +520,86 @@ async function logout(event) {
     }
 }
 
+/* ─── BUG 3: Hianime-style episode grid helpers ─── */
+function buildEpGrid(allEps, pageIndex, activeEp, pageSize) {
+    pageSize = pageSize || 100;
+    const totalPages = Math.ceil(allEps.length / pageSize);
+
+    const pageOptions = Array.from({ length: totalPages }, (_, i) => {
+        const start = i * pageSize + 1;
+        const end   = Math.min((i + 1) * pageSize, allEps.length);
+        return `<option value="${i}" ${i === pageIndex ? 'selected' : ''}>
+            ${String(start).padStart(3,'0')} - ${String(end).padStart(3,'0')}
+        </option>`;
+    }).join('');
+
+    const pageEps = allEps.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize);
+
+    const cells = pageEps.map(ep => {
+        const num = ep.episode_number !== undefined ? ep.episode_number : ep.number;
+        const isActive = num === activeEp;
+        return `<button class="ep-cell${isActive ? ' ep-active' : ''}"
+            onclick="selectEpisode(${num})" title="Episode ${num}">${num}</button>`;
+    }).join('');
+
+    return `
+        <div class="ep-list-wrap">
+            <div class="ep-list-header">
+                <div class="ep-range-wrap">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                        <line x1="8" y1="18" x2="21" y2="18"/>
+                        <circle cx="3" cy="6" r="1.5" fill="currentColor"/>
+                        <circle cx="3" cy="12" r="1.5" fill="currentColor"/>
+                        <circle cx="3" cy="18" r="1.5" fill="currentColor"/>
+                    </svg>
+                    <select class="ep-range-select" onchange="changeEpPage(this.value)">${pageOptions}</select>
+                </div>
+                <div class="ep-find-wrap">
+                    <input type="number" class="ep-find-input" placeholder="Jump to ep…"
+                        min="1" max="${allEps.length}"
+                        onchange="jumpToEp(parseInt(this.value))">
+                </div>
+            </div>
+            <div class="ep-num-grid">${cells}</div>
+            <div class="ep-total">${allEps.length} episodes total</div>
+        </div>`;
+}
+
+function changeEpPage(pageIndex) {
+    if (!window._allEpisodes) return;
+    const el = document.getElementById('episodeSection');
+    if (el) el.innerHTML = buildEpGrid(
+        window._allEpisodes, parseInt(pageIndex),
+        window._currentEp, window._epPageSize
+    );
+}
+
+function jumpToEp(num) {
+    if (!window._allEpisodes) return;
+    const total = window._allEpisodes.length;
+    if (!num || num < 1 || num > total) return;
+    const pageIndex = Math.floor((num - 1) / (window._epPageSize || 100));
+    window._currentEp = num;
+    const el = document.getElementById('episodeSection');
+    if (el) el.innerHTML = buildEpGrid(
+        window._allEpisodes, pageIndex, num, window._epPageSize
+    );
+    setTimeout(() => {
+        const active = document.querySelector('.ep-active');
+        if (active) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 50);
+}
+
+function selectEpisode(num) {
+    window._currentEp = num;
+    // Highlight selected cell (no external link — just mark active)
+    document.querySelectorAll('.ep-cell').forEach(c => {
+        c.classList.toggle('ep-active', parseInt(c.textContent.trim()) === num);
+    });
+}
+
 // Run auth check and detail fetch in parallel - detail.js only redirects
 // if auth fails, so both can fire simultaneously
 Promise.all([checkAuth(), fetchDetail()]);
+

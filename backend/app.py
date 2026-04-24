@@ -20,10 +20,25 @@ import threading
 import time as _time
 from functools import lru_cache
 import hashlib
+import secrets
+
+def serialize_anime(row):
+    d = dict(row)
+    title_eng = d.get('title_english') or ''
+    if title_eng.strip() and title_eng.strip().lower() != 'null':
+        d['display_title'] = title_eng.strip()
+    else:
+        d['display_title'] = d.get('title', '')
+    return d
 
 app = Flask(__name__, static_folder='../frontend')
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
+# FEATURE: Use environment secret with fallback to a hardware-specific local key
+_local_secret = hashlib.sha256(f"{os.path.abspath(__file__)}{os.getlogin() if hasattr(os, 'getlogin') else 'default'}".encode()).hexdigest()
+app.secret_key = os.environ.get('SECRET_KEY', _local_secret)
+
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=365)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 3600  # Cache static files for 1 hour
 
 # --- Last-seen throttle (write at most once per 60s per user) ---
@@ -45,14 +60,17 @@ def update_last_seen():
         cursor.execute("UPDATE users SET last_seen = ? WHERE id = ?", (now, uid))
         conn.commit()
         conn.close()
-CORS(app)
+CORS(app, supports_credentials=True)
 
 # Optimization & Security
 Compress(app)
 # Force HTTPS for public deployment, but allow local testing
+is_prod = os.environ.get('ENVIRONMENT') == 'production'
 Talisman(app, 
     content_security_policy=None, 
-    force_https=os.environ.get('ENVIRONMENT') == 'production'
+    force_https=is_prod,
+    session_cookie_secure=is_prod,
+    session_cookie_samesite='Lax' if not is_prod else 'Strict'
 ) 
 limiter = Limiter(
     get_remote_address,
@@ -279,14 +297,35 @@ def scheduled_update_all():
             "url": "/"
         })
 
-# Disable Scheduler on Vercel (Serverless doesn't support background tasks)
+# ─── Scheduler guard: only run in 1 process to avoid AniList rate-limit ban ───
+# Multi-worker gunicorn would spin up N schedulers without this guard.
 if not os.environ.get('VERCEL'):
-    scheduler = BackgroundScheduler()
-    # Trend update every 30 mins
-    scheduler.add_job(func=scheduled_update, trigger="interval", minutes=30)
-    # Full DB sync every 12 hours
-    scheduler.add_job(func=scheduled_update_all, trigger="interval", hours=12)
-    scheduler.start()
+    scheduler = BackgroundScheduler(daemon=True)
+    # Feature 1: Changed from 30 min to 12 hours to avoid AniList rate limits
+    scheduler.add_job(func=scheduled_update,     trigger='interval', hours=12,
+                      id='scheduled_update',     replace_existing=True,
+                      max_instances=1,            coalesce=True)
+    scheduler.add_job(func=scheduled_update_all, trigger='interval', hours=12,
+                      id='scheduled_update_all', replace_existing=True,
+                      max_instances=1,            coalesce=True)
+    # Under gunicorn: only start if this worker "won" the lock file
+    if os.environ.get('SERVER_SOFTWARE', '').startswith('gunicorn'):
+        _lock_path = '/tmp/aninews_scheduler.lock'
+        try:
+            _lock_fd = open(_lock_path, 'w')
+            import fcntl
+            fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # This worker acquired the lock — it runs the scheduler
+            if not scheduler.running:
+                scheduler.start()
+            print('[Scheduler] Started in gunicorn worker', os.getpid())
+        except (IOError, OSError):
+            print('[Scheduler] Another worker already holds the scheduler lock — skipping')
+    else:
+        # Plain `python app.py` dev mode — always start
+        if not scheduler.running:
+            scheduler.start()
+        print('[Scheduler] Started in dev mode')
 
 # API Routes
 
@@ -374,21 +413,35 @@ def get_anime():
         where_clauses.append("a.status = 'Upcoming' COLLATE NOCASE")
     elif not is_watchlist:
         where_clauses.append("a.status != 'Cancelled'")
-        # Explicit user requirement: Never show old animes. 
-        # Only show animes released within the last 2 years, ensuring absolute freshness.
-        if mode == 'home' and not search:
-            where_clauses.append("a.release_date >= date('now', '-2 year')")
+        # Removal of release_date restriction to allow all popular titles (Classics, etc.) to show up.
 
-    # Search filter
+    # Search filter — Feature 3: multi-token fuzzy search
     if search:
-        where_clauses.append("""
-            (
-                (a.is_adult = 0 AND (a.title LIKE ? OR a.description LIKE ? OR a.genres LIKE ?))
-                OR (a.is_adult = 1 AND a.title LIKE ?)
-            )
-        """)
-        like = f"%{search}%"
-        params.extend([like, like, like, like])
+        # Tokenize: split on whitespace, deduplicate, drop single-char tokens
+        tokens = list(dict.fromkeys(
+            t for t in search.lower().split() if len(t) >= 2
+        ))
+        if tokens:
+            token_clauses = []
+            for _ in tokens:
+                # FEATURE 1: search title_english and title_romaji too
+                token_clauses.append("""
+                    (
+                        (a.is_adult = 0 AND (
+                            LOWER(a.title) LIKE ? OR
+                            LOWER(COALESCE(a.title_english,'')) LIKE ? OR
+                            LOWER(COALESCE(a.title_romaji,'')) LIKE ? OR
+                            LOWER(a.description) LIKE ? OR
+                            LOWER(a.genres) LIKE ?
+                        ))
+                        OR (a.is_adult = 1 AND LOWER(a.title) LIKE ?)
+                    )
+                """)
+                tok = f"%{_}%"
+                params.extend([tok, tok, tok, tok, tok, tok])
+            where_clauses.append(" AND ".join(token_clauses))
+        else:
+            where_clauses.append("1=0")  # Empty query after stripping returns nothing
     else:
         where_clauses.append("a.is_adult = 0")
 
@@ -402,19 +455,44 @@ def get_anime():
     # Sorting - use indexed columns
     if mode == 'trending':
         query += " ORDER BY COALESCE(a.trending_rank, 9999) ASC, a.rating_score DESC"
+    elif mode == 'home' and not search:
+        # BUG 1 fix: Show ALL statuses on home, Ongoing first then Upcoming then Completed
+        query += """
+            ORDER BY
+                CASE a.status
+                    WHEN 'Ongoing'  THEN 1
+                    WHEN 'Upcoming' THEN 2
+                    ELSE 3
+                END ASC,
+                COALESCE(a.trending_rank, 9999) ASC,
+                a.rating_score DESC,
+                a.release_date DESC
+        """
     elif is_watchlist:
         query += " ORDER BY w.created_at DESC"
+    elif category_raw:
+        # BUG 2 fix: Genre pages must show Ongoing first, not sort by release_date
+        # (release_date DESC was pushing Upcoming to the top since their dates are in the future)
+        query += """
+            ORDER BY
+                CASE a.status
+                    WHEN 'Ongoing'  THEN 1
+                    WHEN 'Upcoming' THEN 2
+                    ELSE 3
+                END ASC,
+                COALESCE(a.trending_rank, 9999) ASC,
+                a.rating_score DESC
+        """
     else:
-        # Group by release Month to keep "New" anime up top, but sort by Trending/Popularity 
-        # within that month so garbage anime don't bury the popular hits.
-        query += " ORDER BY substr(a.release_date, 1, 7) DESC, COALESCE(a.trending_rank, 9999) ASC, a.release_date DESC"
+        # Default fallback (search results etc.)
+        query += " ORDER BY COALESCE(a.trending_rank, 9999) ASC, a.rating_score DESC, a.release_date DESC"
 
     query += " LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
     cursor = conn.cursor()
     cursor.execute(query, params)
-    anime = [dict(row) for row in cursor.fetchall()]
+    anime = [serialize_anime(row) for row in cursor.fetchall()]
     conn.close()
 
     result_json = json.dumps(anime)
@@ -427,6 +505,65 @@ def get_anime():
     resp.headers['Cache-Control'] = f'public, max-age={_ANIME_CACHE_TTL}'
     return resp
 
+# BUG 2: Dedicated hero banner endpoint — Ongoing+trending with actual images
+@app.route('/api/anime/hero', methods=['GET'])
+def get_hero_anime():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Primary: Ongoing with images, sorted by trending rank
+    cursor.execute("""
+        SELECT id, title, title_english, description, poster_url, status, genres, rating_score, episodes_current, episodes_total
+        FROM anime
+        WHERE is_approved = 1
+          AND is_adult = 0
+          AND status = 'Ongoing'
+          AND poster_url IS NOT NULL
+          AND poster_url != ''
+        ORDER BY COALESCE(trending_rank, 9999) ASC, rating_score DESC
+        LIMIT 6
+    """)
+    heroes = [serialize_anime(r) for r in cursor.fetchall()]
+
+    # Fallback: if fewer than 3 results, pad with top-rated any-status
+    if len(heroes) < 3:
+        existing_ids = [h['id'] for h in heroes] or [0]
+        placeholders = ','.join('?' for _ in existing_ids)
+        cursor.execute(f"""
+            SELECT id, title, title_english, description, poster_url, status, genres, rating_score, episodes_current, episodes_total
+            FROM anime
+            WHERE is_approved = 1
+              AND is_adult = 0
+              AND poster_url IS NOT NULL
+              AND poster_url != ''
+              AND id NOT IN ({placeholders})
+            ORDER BY COALESCE(trending_rank, 9999) ASC, rating_score DESC
+            LIMIT ?
+        """, existing_ids + [6 - len(heroes)])
+        heroes += [serialize_anime(r) for r in cursor.fetchall()]
+
+    conn.close()
+    resp = make_response(json.dumps(heroes))
+    resp.headers['Content-Type'] = 'application/json'
+    resp.headers['Cache-Control'] = 'public, max-age=120'
+    return resp
+
+# Feature 1: Last-update tracker
+_last_update_time = None
+
+def _run_update_and_track():
+    global _last_update_time
+    scheduled_update()
+    import datetime as _dt
+    _last_update_time = _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+@app.route('/api/last-update', methods=['GET'])
+def get_last_update():
+    return jsonify({'last_update': _last_update_time})
+
+# Feature 1: Run an immediate non-blocking sync on startup (after function defined)
+if not os.environ.get('VERCEL'):
+    threading.Thread(target=_run_update_and_track, daemon=True).start()
+
 @app.route('/api/anime/<int:anime_id>', methods=['GET'])
 def get_anime_detail(anime_id):
     conn = get_db_connection()
@@ -437,7 +574,7 @@ def get_anime_detail(anime_id):
         conn.close()
         return jsonify({"status": "error", "message": "Anime not found"}), 404
 
-    anime_dict = dict(anime)
+    anime_dict = serialize_anime(anime)
 
     # Batch all sub-queries in one connection round-trip
     cursor.execute(
@@ -469,49 +606,78 @@ def get_anime_detail(anime_id):
 def get_related_anime(anime_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT genres, studio, rating_score, status FROM anime WHERE id = ?", (anime_id,))
+
+    # Get current anime metadata
+    cursor.execute("SELECT genres, rating_score, status FROM anime WHERE id = ?", (anime_id,))
     current = cursor.fetchone()
     if not current:
         conn.close()
         return jsonify([])
 
-    genres = [g.strip() for g in current['genres'].split(',') if g.strip()] if current['genres'] else []
-    studio = current['studio']
-    rating = current['rating_score'] or 7.0
+    # Parse genres — stored as comma-separated string
+    raw_genres = current['genres'] or ''
+    try:
+        import json as _json
+        current_genres = set(_json.loads(raw_genres)) if raw_genres.startswith('[') else set(g.strip() for g in raw_genres.split(',') if g.strip())
+    except Exception:
+        current_genres = set(g.strip() for g in raw_genres.split(',') if g.strip())
 
-    # Use EXISTS instead of JOIN+DISTINCT to avoid temp B-TREE sort
-    genre_filter = ""
-    genre_params = []
-    if genres:
-        placeholders = ",".join(["?" for _ in genres])
-        genre_filter = f"""
-            OR EXISTS (
-                SELECT 1 FROM anime_genres ag
-                JOIN genres g ON ag.genre_id = g.id
-                WHERE ag.anime_id = a.id AND g.genre_name IN ({placeholders})
-            )
-        """
-        genre_params = genres
-
-    query = f"""
-        SELECT a.id, a.title, a.poster_url, a.rating_score, a.status
-        FROM anime a
-        WHERE a.id != ? AND a.is_approved = 1 AND a.is_adult = 0
-        AND (
-            a.studio = ?
-            OR (a.rating_score BETWEEN ? AND ?)
-            {genre_filter}
+    # FEATURE 3: Genre-overlap scoring (Spotify-style relevance)
+    if not current_genres:
+        # Fallback: top-scored approved anime
+        cursor.execute(
+            "SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total "
+            "FROM anime WHERE id != ? AND is_approved = 1 AND is_adult = 0 "
+            "ORDER BY rating_score DESC LIMIT 12", (anime_id,)
         )
-        ORDER BY
-            (CASE WHEN a.studio = ? THEN 1 ELSE 0 END) DESC,
-            ABS(COALESCE(a.rating_score, 0) - ?) ASC
-        LIMIT 6
-    """
-    params = [anime_id, studio, rating - 1.5, rating + 1.5] + genre_params + [studio, rating]
-    cursor.execute(query, params)
-    related = [dict(row) for row in cursor.fetchall()]
+        related = [serialize_anime(r) for r in cursor.fetchall()]
+        conn.close()
+        return make_response(json.dumps(related), 200, {'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300'})
+
+    # Fetch all approved, non-adult candidates
+    cursor.execute(
+        "SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total "
+        "FROM anime WHERE id != ? AND is_approved = 1 AND is_adult = 0",
+        (anime_id,)
+    )
+    candidates = cursor.fetchall()
     conn.close()
-    resp = make_response(json.dumps(related))
+
+    scored = []
+    for c in candidates:
+        c_raw = c['genres'] or ''
+        try:
+            c_genres = set(_json.loads(c_raw)) if c_raw.startswith('[') else set(g.strip() for g in c_raw.split(',') if g.strip())
+        except Exception:
+            c_genres = set(g.strip() for g in c_raw.split(',') if g.strip())
+
+        overlap = len(current_genres & c_genres)
+        if overlap == 0:
+            continue
+
+        relevance = overlap * 2.0 + (c['rating_score'] or 0) * 0.1
+        if (c['status'] or '').lower() in ('ongoing', 'airing'):
+            relevance += 1.5
+        scored.append((relevance, serialize_anime(c)))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    results = [item[1] for item in scored[:16]]
+
+    # Pad with top-scored if fewer than 4
+    if len(results) < 4:
+        exclude_ids = [r['id'] for r in results] or [0]
+        ph = ','.join('?' * len(exclude_ids))
+        conn2 = get_db_connection()
+        extras = conn2.execute(
+            f"SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total "
+            f"FROM anime WHERE id != ? AND is_approved = 1 AND is_adult = 0 "
+            f"AND id NOT IN ({ph}) ORDER BY rating_score DESC LIMIT ?",
+            [anime_id] + exclude_ids + [12 - len(results)]
+        ).fetchall()
+        conn2.close()
+        results += [serialize_anime(r) for r in extras]
+
+    resp = make_response(json.dumps(results))
     resp.headers['Content-Type'] = 'application/json'
     resp.headers['Cache-Control'] = 'public, max-age=300'
     return resp
@@ -545,7 +711,7 @@ def get_admin_anime():
     else:
         cursor.execute("SELECT * FROM anime ORDER BY created_at DESC")
         
-    anime = [dict(row) for row in cursor.fetchall()]
+    anime = [serialize_anime(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(anime)
 
@@ -560,6 +726,7 @@ def approve_anime(anime_id):
     return jsonify({"status": "success"})
 
 @app.route('/api/auth/register', methods=['POST'])
+@limiter.limit("3 per hour")
 def register():
     data = request.json
     email = data.get('email')
@@ -569,7 +736,7 @@ def register():
     if not email or not password:
         return jsonify({"status": "error", "message": "Email and password required"}), 400
         
-    hashed_password = generate_password_hash(password)
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -583,18 +750,30 @@ def register():
         conn.close()
 
 @app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login():
     data = request.json
     email = data.get('email')
     password = data.get('password')
+
+    if not email or not password:
+        return jsonify({"status": "error", "message": "Email and password required"}), 400
     
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
     user = cursor.fetchone()
     conn.close()
-    
-    if user and check_password_hash(user['password'], password):
+
+    # Guard against unsupported hash algorithms (e.g. scrypt on LibreSSL/macOS Python 3.9)
+    password_ok = False
+    if user:
+        try:
+            password_ok = check_password_hash(user['password'], password)
+        except Exception:
+            password_ok = False
+
+    if password_ok:
         session.permanent = True
         session['user_id'] = user['id']
         session['email'] = user['email']
@@ -602,6 +781,71 @@ def login():
         return jsonify({"status": "success", "user": {"email": user['email'], "role": user['role']}})
     
     return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+@limiter.limit("3 per hour")
+def forgot_password():
+    data = request.json
+    email = data.get('email')
+    if not email:
+        return jsonify({"status": "error", "message": "Email is required"}), 400
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+    user = cursor.fetchone()
+    
+    if not user:
+        # For security, don't reveal if user exists
+        return jsonify({"status": "success", "message": "Check your email for reset instructions."})
+    
+    token = secrets.token_urlsafe(32)
+    expiry = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
+    
+    cursor.execute("UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?", (token, expiry, user['id']))
+    conn.commit()
+    conn.close()
+    
+    subject = "Password Reset Request - AniNews"
+    reset_url = f"{request.host_url}login?token={token}"
+    body = f"Click the link below to reset your password. The link will expire in 1 hour.\n\n{reset_url}"
+    
+    send_actual_email(email, subject, body)
+    
+    return jsonify({"status": "success", "message": "Check your email for reset instructions."})
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+@limiter.limit("3 per hour")
+def reset_password():
+    data = request.json
+    token = data.get('token')
+    new_password = data.get('password')
+    
+    if not token or not new_password:
+        return jsonify({"status": "error", "message": "Token and new password required"}), 400
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, reset_token_expiry FROM users WHERE reset_token = ?", (token,))
+    user = cursor.fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({"status": "error", "message": "Invalid or expired token"}), 400
+    
+    # Check expiry
+    expiry_str = user['reset_token_expiry']
+    expiry = datetime.datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
+    if expiry < datetime.datetime.now(datetime.timezone.utc):
+        conn.close()
+        return jsonify({"status": "error", "message": "Token has expired"}), 400
+    
+    hashed_password = generate_password_hash(new_password, method='pbkdf2:sha256')
+    cursor.execute("UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?", (hashed_password, user['id']))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"status": "success", "message": "Password reset successful! You can now login."})
 
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
@@ -916,6 +1160,14 @@ def get_admin_users():
     conn.close()
     return jsonify(users)
 
+# ─── Favicon ─── (BUG 3: avoids 404 on every page load)
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(_STATIC_DIR, 'favicon.ico',
+                               mimetype='image/x-icon')
+
 # Serve Frontend
 @app.route('/')
 def serve_index():
@@ -932,6 +1184,24 @@ def serve_login():
 @app.route('/<path:path>')
 def serve_static(path):
     return send_from_directory(app.static_folder, path)
+
+
+
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'Not found'}), 404
+    return send_from_directory(app.static_folder, '404.html'), 404
+
+@app.errorhandler(500)
+def server_error(e):
+    return jsonify({'error': 'Server error'}), 500
+
+@app.after_request
+def add_cache(response):
+    if request.path.startswith('/api/anime'):
+        response.cache_control.max_age = 300
+    return response
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
