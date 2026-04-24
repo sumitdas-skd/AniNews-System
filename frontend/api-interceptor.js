@@ -4,31 +4,30 @@
         let url;
         let options = { ...init };
 
-        // Handle both string URLs and Request objects
         if (typeof input === 'string') {
             url = input;
         } else if (input instanceof Request) {
             url = input.url;
-            // Merge options from Request object if possible
         } else {
             url = String(input);
         }
 
-        // Automatically prefix relative API calls with the backend base URL
+        // SMART ROUTING: Only prefix with Render if we are NOT on localhost
         if (url.startsWith('/api/')) {
-            const baseUrl = (window.CONFIG && CONFIG.API_BASE_URL) ? CONFIG.API_BASE_URL : '';
-            // Ensure no double slashes
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const baseUrl = (window.CONFIG && CONFIG.API_BASE_URL && !isLocal) ? CONFIG.API_BASE_URL : '';
+            
             const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
             url = cleanBase + url;
             
-            // Ensure cookies/sessions are sent across origins (Vercel -> Render)
-            options.credentials = 'include';
-            
-            console.log(`[API Interceptor] Routing to: ${url}`);
+            // Credentials needed for cross-domain (Vercel -> Render)
+            if (!isLocal) {
+                options.credentials = 'include';
+            }
         }
 
         return originalFetch(url, options).catch(err => {
-            console.error(`[API Interceptor] Fetch failed for ${url}:`, err);
+            console.error(`[API Interceptor] Fetch failed:`, err);
             throw err;
         });
     };
