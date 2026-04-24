@@ -80,7 +80,7 @@ Talisman(app,
     content_security_policy=None, 
     force_https=is_prod,
     session_cookie_secure=is_prod,
-    session_cookie_samesite='Lax' if not is_prod else 'Strict'
+    session_cookie_samesite='None' if is_prod else 'Lax'
 ) 
 limiter = Limiter(
     get_remote_address,
