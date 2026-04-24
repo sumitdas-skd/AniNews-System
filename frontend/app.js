@@ -9,17 +9,8 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// Global error handler - only show toast for actual fetch failures
-window.addEventListener('unhandledrejection', e => {
-    // Only trigger for fetch-related errors or when data is missing
-    if (e.reason && (e.reason.name === 'TypeError' || e.reason.message?.includes('fetch') || e.reason.message?.includes('NetworkError'))) {
-        console.warn('Network issue detected:', e.reason);
-        showToast('Connection error. Please refresh.', 'error');
-    } else {
-        // Silently log other minor background rejections (Sakura petals, etc.)
-        console.debug('Background promise rejection:', e.reason);
-    }
-});
+// Removed global unhandledrejection listener to prevent false-positive toasts.
+// All critical fetch calls (Anime, Auth, Hero) already have their own try/catch blocks.
 
 /* ─── State ─── */
 let currentMode = 'home';
