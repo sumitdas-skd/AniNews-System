@@ -62,7 +62,15 @@ def update_last_seen():
         cursor.execute("UPDATE users SET last_seen = ? WHERE id = ?", (now, uid))
         conn.commit()
         conn.close()
-CORS(app, supports_credentials=True)
+# FEATURE: Split Deployment Support (Render Backend + Vercel Frontend)
+# Using regex to allow all Vercel subdomains and local development ports
+import re
+CORS(app, supports_credentials=True, origins=[
+    re.compile(r"https://.*\.vercel\.app$"),
+    re.compile(r"http://localhost:\d+$"),
+    re.compile(r"http://127\.0\.0\.1:\d+$"),
+    "https://aninews-system.onrender.com" # Allow itself
+])
 
 # Optimization & Security
 Compress(app)
