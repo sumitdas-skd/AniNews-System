@@ -32,8 +32,10 @@ def serialize_anime(row):
     return d
 
 app = Flask(__name__, static_folder='../frontend')
-# FEATURE: Use environment secret with fallback to a hardware-specific local key
-_local_secret = hashlib.sha256(f"{os.path.abspath(__file__)}{os.getlogin() if hasattr(os, 'getlogin') else 'default'}".encode()).hexdigest()
+# FEATURE: Use environment secret with fallback to a stable local key
+# We avoid os.getlogin() as it fails in many server/container environments (Render/Docker)
+_local_id = os.environ.get('USER', os.environ.get('USERNAME', 'server'))
+_local_secret = hashlib.sha256(f"{os.path.abspath(__file__)}{_local_id}".encode()).hexdigest()
 app.secret_key = os.environ.get('SECRET_KEY', _local_secret)
 
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=365)
