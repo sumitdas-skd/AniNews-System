@@ -3,11 +3,12 @@ import os
 import re
 
 # FEATURE: Support for PostgreSQL on Render/Heroku/etc.
-DATABASE_URL = None # os.environ.get('DATABASE_URL')
+DATABASE_URL = os.environ.get('DATABASE_URL')
 DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'anime.db'))
 
 def get_db_connection():
     if DATABASE_URL:
+        print(f"Connecting to PostgreSQL...")
         import psycopg2
         from psycopg2.extras import RealDictCursor
         
@@ -22,6 +23,7 @@ def get_db_connection():
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
 
+        print(f"Connecting to SQLite: {DB_PATH}")
         # FEATURE: Increase timeout to 30s to handle concurrent write locks better
         conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row

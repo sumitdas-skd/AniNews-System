@@ -1,4 +1,4 @@
-const CONFIG = {
-    // Replace this with your actual Render URL
-    API_BASE_URL: 'https://aninews-system.onrender.com'
+window.CONFIG = {
+    // Relative paths work best when frontend and backend are on the same domain (Render)
+    API_BASE_URL: '' 
 };

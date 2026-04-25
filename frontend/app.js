@@ -864,10 +864,16 @@ async function pollLastUpdate() {
    INIT
    ════════════════ */
 (async function init() {
+    console.log("[AniNews] Initializing application...");
     try {
-        await checkAuth();
+        // Start auth check but don't let it block the entire UI if it's slow
+        checkAuth().catch(err => console.error("Auth check failed:", err));
+        
         initSakura();
+        
+        // Fetch initial data
         await fetchAnime('home', false, true);
+        
         fetchHeroAnime();
         registerServiceWorker();
         checkFirstLogin();
@@ -875,13 +881,13 @@ async function pollLastUpdate() {
         setInterval(pollLastUpdate, 60_000);
     } catch (err) {
         console.error('Initialization failed:', err);
-        // Fallback: remove loader even if init failed so user isn't stuck
+        // CRITICAL: Ensure loader is removed so user doesn't see a stuck spinner
         const grid = document.getElementById('animeGrid');
         if (grid) {
             const loader = grid.querySelector('.loading');
             if (loader) loader.remove();
             if (grid.innerHTML === '') {
-                grid.innerHTML = '<div class="no-results"><h3>⚠️ System Error</h3><p>Failed to load the application. Please refresh or try again later.</p></div>';
+                grid.innerHTML = '<div class="no-results"><h3>⚠️ System Error</h3><p>Failed to load the application. Please refresh or contact support.</p></div>';
             }
         }
     }
