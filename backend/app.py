@@ -1255,6 +1255,20 @@ def add_cache(response):
 @app.route('/api/debug/db')
 def debug_db():
     try:
+        migrate_requested = request.args.get('migrate') == '1'
+        migration_result = None
+        
+        if migrate_requested:
+            from database import DB_PATH, get_db_connection, _migrate_data_to_pg
+            conn = get_db_connection()
+            try:
+                _migrate_data_to_pg(DB_PATH, conn)
+                migration_result = "Success"
+            except Exception as e:
+                migration_result = f"Failed: {str(e)}"
+            finally:
+                conn.close()
+
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) as count FROM anime")
@@ -1271,7 +1285,8 @@ def debug_db():
             "total_anime": dict(count)['count'] if count else 0,
             "statuses": [dict(s) for s in statuses],
             "env_db_path": os.environ.get('DB_PATH'),
-            "is_prod": is_prod
+            "is_prod": is_prod,
+            "migration_trigger_result": migration_result
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

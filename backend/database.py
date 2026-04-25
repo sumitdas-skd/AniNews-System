@@ -183,6 +183,7 @@ def init_db():
             genres TEXT,
             trending_rank INTEGER,
             is_adult INTEGER DEFAULT 0,
+            episodes_json TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -202,7 +203,8 @@ def init_db():
         ('rating_votes', 'INTEGER'),
         ('genres', 'TEXT'),
         ('trending_rank', 'INTEGER'),
-        ('is_adult', 'INTEGER DEFAULT 0')
+        ('is_adult', 'INTEGER DEFAULT 0'),
+        ('episodes_json', 'TEXT')
     ]
     
     for col_name, col_type in columns:
@@ -390,9 +392,15 @@ def _migrate_data_to_pg(sqlite_path, pg_conn):
         sl_cursor.execute("SELECT * FROM anime")
         anime_rows = sl_cursor.fetchall()
         print(f"Migrating {len(anime_rows)} anime records...")
+        
+        # Get target columns to avoid schema mismatch errors
+        pg_cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'anime'")
+        target_cols = [c['column_name'] for c in pg_cursor.fetchall()]
+        
         for row in anime_rows:
             d = dict(row)
-            cols = list(d.keys())
+            # Only keep columns that exist in the target table
+            cols = [c for c in d.keys() if c.lower() in target_cols]
             vals = [d[c] for c in cols]
             placeholders = ", ".join(["%s"] * len(cols))
             sql = f"INSERT INTO anime ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (anilist_id) DO NOTHING"
