@@ -528,9 +528,16 @@ def get_anime():
     params.extend([limit, offset])
 
     cursor = conn.cursor()
-    cursor.execute(query, params)
-    anime = [serialize_anime(row) for row in cursor.fetchall()]
-    conn.close()
+    try:
+        cursor.execute(query, params)
+        anime = [serialize_anime(row) for row in cursor.fetchall()]
+        conn.close()
+    except Exception as e:
+        import traceback
+        error_msg = f"DB ERROR in get_anime: {e}\n{traceback.format_exc()}"
+        print(error_msg)
+        if conn: conn.close()
+        return jsonify({"error": str(e), "details": error_msg}), 500
 
     result_json = json.dumps(anime)
     # Cache only anonymous, non-watchlist requests
