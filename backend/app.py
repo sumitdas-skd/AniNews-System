@@ -604,10 +604,30 @@ def get_last_update():
     return jsonify({'last_update': _last_update_time})
 
 # Feature 1: Run an immediate non-blocking sync on startup (after function defined)
-# FEATURE: Added a 10s delay to prevent DB contention right at startup
+# If DB is nearly empty (< 10 anime), sync immediately; otherwise wait 10s to avoid contention.
 def _delayed_sync():
     import time
-    time.sleep(10)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM anime")
+        row = cursor.fetchone()
+        conn.close()
+        if row is None:
+            count_val = 0
+        elif isinstance(row, dict):
+            count_val = row.get('count', 0)
+        else:
+            try:
+                count_val = row['count']
+            except (KeyError, TypeError):
+                count_val = row[0]
+        if count_val < 10:
+            print(f'[Startup] DB has only {count_val} anime — running immediate full sync.')
+        else:
+            time.sleep(10)
+    except Exception as e:
+        print(f'[Startup] Could not check DB count: {e}. Syncing anyway.')
     _run_update_and_track()
 
 if not os.environ.get('VERCEL'):
@@ -734,6 +754,18 @@ def get_related_anime(anime_id):
     resp.headers['Content-Type'] = 'application/json'
     resp.headers['Cache-Control'] = 'public, max-age=300'
     return resp
+
+@app.route('/api/admin/force-sync', methods=['POST'])
+@admin_required
+def force_sync():
+    """Manually trigger a full AniList fetch and DB populate. Use after a fresh deployment."""
+    def _run():
+        try:
+            _run_update_and_track()
+        except Exception as e:
+            print(f"[force-sync] Error during sync: {e}")
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"status": "success", "message": "Full sync triggered in background. Check /api/last-update for progress."})
 
 @app.route('/api/admin/anime/<int:anime_id>', methods=['DELETE'])
 @admin_required

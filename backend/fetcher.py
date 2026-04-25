@@ -591,8 +591,18 @@ def update_database(custom_list=None):
         max_eps = max(episodes_total or 0, episodes_current or 0)
         if max_eps:
             # Check if we already have episodes to avoid 1000+ individual checks
-            cursor.execute("SELECT COUNT(*) FROM episodes WHERE anime_id = ?", (anime_id,))
-            existing_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as count FROM episodes WHERE anime_id = ?", (anime_id,))
+            count_row = cursor.fetchone()
+            # Handle both sqlite3.Row (index access) and psycopg2 RealDictCursor (dict access)
+            if count_row is None:
+                existing_count = 0
+            elif isinstance(count_row, dict):
+                existing_count = count_row.get('count', 0)
+            else:
+                try:
+                    existing_count = count_row['count']
+                except (KeyError, TypeError):
+                    existing_count = count_row[0]
             if existing_count < max_eps:
                 ep_data = [
                     (anime_id, ep_num, f"Episode {ep_num}") 
