@@ -3,7 +3,7 @@ import os
 import re
 
 # FEATURE: Support for PostgreSQL on Render/Heroku/etc.
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = None # os.environ.get('DATABASE_URL')
 DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'anime.db'))
 
 def get_db_connection():
