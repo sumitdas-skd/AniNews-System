@@ -1259,7 +1259,7 @@ def debug_db():
         migration_result = None
         
         if migrate_requested:
-            from database import DB_PATH, get_db_connection, _migrate_data_to_pg
+            from database import DB_PATH, _migrate_data_to_pg
             conn = get_db_connection()
             try:
                 _migrate_data_to_pg(DB_PATH, conn)
