@@ -1288,6 +1288,9 @@ def debug_db():
 
         cursor.execute("SELECT is_adult, COUNT(*) as c FROM anime GROUP BY is_adult")
         adult_counts = cursor.fetchall()
+
+        cursor.execute("SELECT id, title, is_approved, is_adult, status, trending_rank FROM anime ORDER BY id DESC LIMIT 5")
+        latest_anime = cursor.fetchall()
         
         db_type = "PostgreSQL" if os.environ.get('DATABASE_URL') else "SQLite"
         
@@ -1298,6 +1301,7 @@ def debug_db():
             "statuses": [dict(s) for s in statuses],
             "approved": [dict(s) for s in approved_counts],
             "adult": [dict(s) for s in adult_counts],
+            "latest_samples": [dict(a) for a in latest_anime],
             "env_db_path": os.environ.get('DB_PATH'),
             "is_prod": is_prod,
             "migration_trigger_result": migration_result
