@@ -427,6 +427,12 @@ def _migrate_data_to_pg(sqlite_path, pg_conn):
             pg_cursor.execute(sql, vals)
 
         pg_conn.commit()
+        
+        # 5. Fix NULL visibility flags that prevent anime from showing up
+        pg_cursor.execute("UPDATE anime SET is_approved = 1 WHERE is_approved IS NULL")
+        pg_cursor.execute("UPDATE anime SET is_adult = 0 WHERE is_adult IS NULL")
+        pg_conn.commit()
+        
         sl_conn.close()
         print("Migration to PostgreSQL completed successfully!")
     except Exception as e:
