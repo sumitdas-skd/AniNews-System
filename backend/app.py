@@ -1252,9 +1252,9 @@ def not_found(e):
         return jsonify({'error': 'Not found'}), 404
     return send_from_directory(app.static_folder, '404.html'), 404
 
-@app.errorhandler(500)
-def server_error(e):
-    return jsonify({'error': 'Server error'}), 500
+# @app.errorhandler(500)
+# def server_error(e):
+#     return jsonify({'error': 'Server error'}), 500
 
 @app.after_request
 def add_cache(response):
