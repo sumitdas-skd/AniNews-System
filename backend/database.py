@@ -37,16 +37,28 @@ def get_db_connection():
 class PostgresCompatConnection:
     def __init__(self, conn):
         self.conn = conn
+        # FEATURE: Enable autocommit to prevent "InFailedSqlTransaction" errors
+        # This makes it behave more like SQLite for simple migrations/scripts
+        self.conn.autocommit = True
     
     def cursor(self):
         from psycopg2.extras import RealDictCursor
         return PostgresCompatCursor(self.conn.cursor(cursor_factory=RealDictCursor), self.conn)
     
     def commit(self):
-        self.conn.commit()
+        # No-op if autocommit is on, prevents errors
+        if not self.conn.autocommit:
+            self.conn.commit()
     
     def rollback(self):
-        self.conn.rollback()
+        # No-op if autocommit is on, prevents errors
+        if not self.conn.autocommit:
+            self.conn.rollback()
+        else:
+            # If autocommit is on, we can't rollback the "transaction" 
+            # but we can try to clear the state if needed. 
+            # Usually not necessary with autocommit.
+            pass
     
     def close(self):
         self.conn.close()
