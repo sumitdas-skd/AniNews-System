@@ -10,9 +10,6 @@ ENV/
 env/
 
 # Data
-backend/anime.db
-backend/anime.db-wal
-backend/anime.db-shm
 backend/*.pem
 server.log
 
@@ -32,7 +29,5 @@ instance/
 # Temporary scratch scripts and extra DBs
 fix_*.py
 backfill.py
-backend/*.db
-backend/*.db-*
 *.log
 .secret_key
