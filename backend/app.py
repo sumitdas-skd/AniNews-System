@@ -484,7 +484,7 @@ def get_anime():
             where_clauses.append(" AND ".join(token_clauses))
         else:
             where_clauses.append("1=0")  # Empty query after stripping returns nothing
-    else:
+    if not search:
         where_clauses.append("a.is_adult = 0")
 
     # Country filter
@@ -494,43 +494,32 @@ def get_anime():
 
     query = f"{base_select} WHERE {' AND '.join(where_clauses)}"
 
-    # Sorting - use indexed columns
+    # Sorting - ensure migrated anime without trending_rank still appear
     if mode == 'trending':
         query += " ORDER BY COALESCE(a.trending_rank, 9999) ASC, a.rating_score DESC"
     elif mode == 'home' and not search:
-        # BUG 1 fix: Show ALL statuses on home, Ongoing first then Upcoming then Completed
         query += """
             ORDER BY
                 CASE a.status
                     WHEN 'Ongoing'  THEN 1
                     WHEN 'Upcoming' THEN 2
-                    ELSE 3
+                    WHEN 'Released' THEN 3
+                    WHEN 'Completed' THEN 3
+                    ELSE 4
                 END ASC,
                 COALESCE(a.trending_rank, 9999) ASC,
-                a.rating_score DESC,
-                a.release_date DESC
+                a.rating_score DESC NULLS LAST,
+                a.id DESC
         """
     elif is_watchlist:
         query += " ORDER BY w.created_at DESC"
-    elif category_raw:
-        # BUG 2 fix: Genre pages must show Ongoing first, not sort by release_date
-        # (release_date DESC was pushing Upcoming to the top since their dates are in the future)
-        query += """
-            ORDER BY
-                CASE a.status
-                    WHEN 'Ongoing'  THEN 1
-                    WHEN 'Upcoming' THEN 2
-                    ELSE 3
-                END ASC,
-                COALESCE(a.trending_rank, 9999) ASC,
-                a.rating_score DESC
-        """
     else:
-        # Default fallback (search results etc.)
-        query += " ORDER BY COALESCE(a.trending_rank, 9999) ASC, a.rating_score DESC, a.release_date DESC"
+        query += " ORDER BY COALESCE(a.trending_rank, 9999) ASC, a.rating_score DESC NULLS LAST, a.id DESC"
 
     query += " LIMIT ? OFFSET ?"
     params.extend([limit, offset])
+
+    print(f"DEBUG QUERY: {query} | PARAMS: {params}")
 
     cursor = conn.cursor()
     try:
