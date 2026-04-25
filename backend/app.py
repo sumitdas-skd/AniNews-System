@@ -1276,6 +1276,12 @@ def debug_db():
         
         cursor.execute("SELECT status, COUNT(*) as c FROM anime GROUP BY status")
         statuses = cursor.fetchall()
+
+        cursor.execute("SELECT is_approved, COUNT(*) as c FROM anime GROUP BY is_approved")
+        approved_counts = cursor.fetchall()
+
+        cursor.execute("SELECT is_adult, COUNT(*) as c FROM anime GROUP BY is_adult")
+        adult_counts = cursor.fetchall()
         
         db_type = "PostgreSQL" if os.environ.get('DATABASE_URL') else "SQLite"
         
@@ -1284,6 +1290,8 @@ def debug_db():
             "db_type": db_type,
             "total_anime": dict(count)['count'] if count else 0,
             "statuses": [dict(s) for s in statuses],
+            "approved": [dict(s) for s in approved_counts],
+            "adult": [dict(s) for s in adult_counts],
             "env_db_path": os.environ.get('DB_PATH'),
             "is_prod": is_prod,
             "migration_trigger_result": migration_result
