@@ -35,3 +35,4 @@ backfill.py
 backend/*.db
 backend/*.db-*
 *.log
+.secret_key

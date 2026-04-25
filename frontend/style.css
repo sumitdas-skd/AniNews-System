@@ -2261,3 +2261,58 @@ button {
     background: #1a1a2e !important;
     color: white !important;
 }
+
+/* ============================================
+   UTILITIES & ANIMATIONS (New)
+   ============================================ */
+
+/* Skeleton Loading */
+.skeleton {
+    background: linear-gradient(90deg, #111120 25%, #1a1a2e 50%, #111120 75%);
+    background-size: 200% 100%;
+    animation: skelShimmer 1.4s infinite;
+}
+
+@keyframes skelShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Toast Notifications */
+#toastTray {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+
+.toast {
+    padding: 0.75rem 1.25rem;
+    border-radius: 10px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.875rem;
+    font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    animation: toastIn 0.3s ease forwards;
+    pointer-events: auto;
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.4s;
+}
+
+.toast.success {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+.toast.error {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

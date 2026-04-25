@@ -587,14 +587,16 @@ def update_database(custom_list=None):
             new_entries += 1
             
         # Populate episodes table (Optimized: only if not already populated or needed)
-        if episodes_total:
+        # Use whichever is greater: episodes_total or episodes_current
+        max_eps = max(episodes_total or 0, episodes_current or 0)
+        if max_eps:
             # Check if we already have episodes to avoid 1000+ individual checks
             cursor.execute("SELECT COUNT(*) FROM episodes WHERE anime_id = ?", (anime_id,))
             existing_count = cursor.fetchone()[0]
-            if existing_count < episodes_total:
+            if existing_count < max_eps:
                 ep_data = [
                     (anime_id, ep_num, f"Episode {ep_num}") 
-                    for ep_num in range(existing_count + 1, (episodes_total or 0) + 1)
+                    for ep_num in range(existing_count + 1, max_eps + 1)
                 ]
                 if ep_data:
                     cursor.executemany("INSERT OR IGNORE INTO episodes (anime_id, episode_number, episode_name) VALUES (?, ?, ?)", ep_data)

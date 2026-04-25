@@ -44,28 +44,14 @@ function showToast(msg, type = 'success') {
     if (!tray) {
         tray = document.createElement('div');
         tray.id = 'toastTray';
-        tray.style.cssText = 'position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:0.5rem;pointer-events:none;';
         document.body.appendChild(tray);
     }
     const t = document.createElement('div');
-    t.style.cssText = `
-        background:${type === 'success' ? 'linear-gradient(135deg,#22c55e,#16a34a)' : 'linear-gradient(135deg,#ef4444,#dc2626)'};
-        color:#fff;padding:0.75rem 1.25rem;border-radius:10px;
-        font-family:'Outfit',sans-serif;font-size:0.875rem;font-weight:600;
-        box-shadow:0 4px 20px rgba(0,0,0,0.4);
-        animation:toastIn 0.3s ease;pointer-events:auto;
-    `;
+    t.className = `toast ${type}`;
     t.textContent = msg;
     tray.appendChild(t);
-    setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.4s'; setTimeout(() => t.remove(), 400); }, 2800);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 2800);
 }
-
-// inject toast keyframe once
-(() => {
-    const s = document.createElement('style');
-    s.textContent = '@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}';
-    document.head.appendChild(s);
-})();
 
 /* ─── Hero Banner State ─── */
 let heroAnimeData  = [];
@@ -356,24 +342,12 @@ async function fetchAnime(mode = null, append = false, reset = false) {
         if (grid) {
             grid.innerHTML = Array(8).fill(`
                 <div class="anime-card" style="pointer-events:none;">
-                    <div style="width:100%;height:280px;background:linear-gradient(90deg,#111120 25%,#1a1a2e 50%,#111120 75%);
-                         background-size:200% 100%;animation:skelShimmer 1.4s infinite;border-radius:14px 14px 0 0;"></div>
+                    <div class="skeleton" style="width:100%;height:280px;border-radius:14px 14px 0 0;"></div>
                     <div style="padding:1rem;">
-                        <div style="height:12px;width:60%;border-radius:4px;margin-bottom:8px;
-                             background:linear-gradient(90deg,#111120 25%,#1a1a2e 50%,#111120 75%);
-                             background-size:200% 100%;animation:skelShimmer 1.4s infinite;"></div>
-                        <div style="height:10px;width:40%;border-radius:4px;
-                             background:linear-gradient(90deg,#111120 25%,#1a1a2e 50%,#111120 75%);
-                             background-size:200% 100%;animation:skelShimmer 1.4s infinite;"></div>
+                        <div class="skeleton" style="height:12px;width:60%;border-radius:4px;margin-bottom:8px;"></div>
+                        <div class="skeleton" style="height:10px;width:40%;border-radius:4px;"></div>
                     </div>
                 </div>`).join('');
-            // inject shimmer keyframe once
-            if (!document.getElementById('skelStyle')) {
-                const ss = document.createElement('style');
-                ss.id = 'skelStyle';
-                ss.textContent = '@keyframes skelShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}';
-                document.head.appendChild(ss);
-            }
         }
     }
 
@@ -420,13 +394,17 @@ async function showHomeSections(animeData) {
     const heroBanner = document.getElementById('heroBanner');
     if (heroBanner) heroBanner.style.display = 'block';
 
-    // Fetch trending for the compact list
-    fetchTrendingSection();
-
-    // Ongoing scroll row
-    fetchScrollRow('Ongoing',   'ongoingScrollRow',   'ongoingSection');
-    // Completed scroll row
-    fetchScrollRow('Completed', 'completedScrollRow', 'completedSection');
+    try {
+        // Feature: Batch common home page requests into one for performance
+        const res = await fetch('/api/home/combined');
+        const data = await res.json();
+        
+        if (data.trending) renderTrendingSection(data.trending);
+        if (data.ongoing)  renderScrollRow(data.ongoing, 'ongoingScrollRow', 'ongoingSection');
+        if (data.completed) renderScrollRow(data.completed, 'completedScrollRow', 'completedSection');
+    } catch (err) {
+        console.error('Home sections load failed', err);
+    }
 }
 
 function hideHomeSections() {
@@ -441,71 +419,61 @@ function hideHomeSections() {
     if (heroInterval) { clearInterval(heroInterval); heroInterval = null; }
 }
 
-async function fetchTrendingSection() {
+
+function renderTrendingSection(data) {
     const section = document.getElementById('trendingSection');
     const list    = document.getElementById('trendingList');
-    if (!section || !list) return;
+    if (!section || !list || !data.length) return;
 
-    try {
-        const res  = await fetch('/api/anime?mode=trending&limit=10&offset=0');
-        const data = await res.json();
-        if (!data.length) return;
-        section.style.display = 'block';
-        section.style.animation = 'fadeIn 0.5s ease';
+    section.style.display = 'block';
+    section.style.animation = 'fadeIn 0.5s ease';
 
-        list.innerHTML = data.map((a, i) => `
-            <a href="/detail.html?id=${a.id}" class="trending-item">
-                <span class="trending-rank">${i + 1}</span>
-                <img src="${a.poster_url}" alt="${getTitle(a)}" class="trending-thumb" onerror="this.src='https://via.placeholder.com/48x68/111120/ff2d6b?text=?'">
-                <div class="trending-info">
-                    <div class="trending-title">${getTitle(a)}</div>
-                    <div class="trending-meta">
-                        ${a.genres ? a.genres.split(',').slice(0,2).map(g => `<span class="trending-genre">${g.trim()}</span>`).join('') : ''}
-                        ${a.rating_score ? `<span class="trending-score">⭐ ${a.rating_score.toFixed(1)}</span>` : ''}
-                        <span class="status-badge status-${a.status}">${a.status}</span>
-                    </div>
+    list.innerHTML = data.map((a, i) => `
+        <a href="/detail.html?id=${a.id}" class="trending-item">
+            <span class="trending-rank">${i + 1}</span>
+            <img src="${a.poster_url}" alt="${getTitle(a)}" class="trending-thumb" onerror="this.src='https://via.placeholder.com/48x68/111120/ff2d6b?text=?'">
+            <div class="trending-info">
+                <div class="trending-title">${getTitle(a)}</div>
+                <div class="trending-meta">
+                    ${a.genres ? a.genres.split(',').slice(0,2).map(g => `<span class="trending-genre">${g.trim()}</span>`).join('') : ''}
+                    ${a.rating_score ? `<span class="trending-score">⭐ ${a.rating_score.toFixed(1)}</span>` : ''}
+                    <span class="status-badge status-${a.status}">${a.status}</span>
                 </div>
-                <span class="trending-arrow">↑</span>
-            </a>
-        `).join('');
-    } catch { console.error('Trending section error'); }
+            </div>
+            <span class="trending-arrow">↑</span>
+        </a>
+    `).join('');
 }
 
-async function fetchScrollRow(statusVal, rowId, sectionId) {
+function renderScrollRow(data, rowId, sectionId) {
     const section = document.getElementById(sectionId);
     const row     = document.getElementById(rowId);
-    if (!section || !row) return;
+    if (!section || !row || !data.length) return;
 
-    try {
-        const res  = await fetch(`/api/anime?mode=home&status=${statusVal}&limit=20&offset=0`);
-        const data = await res.json();
-        if (!data.length) return;
+    section.style.display = 'block';
+    section.style.animation = 'fadeIn 0.5s ease';
 
-        section.style.display = 'block';
-        section.style.animation = 'fadeIn 0.5s ease';
-
-        row.innerHTML = data.map(a => {
-            const rating = a.rating_score;
-            const rClass = !rating ? 'none' : rating >= 8 ? 'high' : rating >= 6 ? 'mid' : 'low';
-            const rLabel = rating ? rating.toFixed(1) : 'N/A';
-            const displayTitle = getTitle(a);
-            const epInfo = a.status === 'Ongoing' ? `EP ${a.episodes_current || '?'}` : (a.episodes_total ? `${a.episodes_total} EP` : '');
-            return `
-            <div class="anime-card-poster" onclick="location.href='/detail.html?id=${a.id}'">
-                <img src="${a.poster_url}" alt="${displayTitle}" loading="lazy" onerror="this.src='https://via.placeholder.com/155x230/111120/ff2d6b?text=No+Poster'">
-                <span class="status-badge status-${a.status}">${a.status}</span>
-                ${epInfo ? `<span class="ep-badge-overlay">${epInfo}</span>` : ''}
-                <span class="rating-badge ${rClass}">⭐ ${rLabel}</span>
-                <div class="poster-overlay">
-                    <div class="overlay-title">${displayTitle}</div>
-                    <div class="overlay-meta">
-                        <span class="overlay-rating">⭐ ${rLabel}</span>
-                        <button class="overlay-add-btn" onclick="event.stopPropagation(); toggleWatchlistCard(event, ${a.id}, this)" title="Add to List">+</button>
-                    </div>
+    row.innerHTML = data.map(a => {
+        const rating = a.rating_score;
+        const rClass = !rating ? 'none' : rating >= 8 ? 'high' : rating >= 6 ? 'mid' : 'low';
+        const rLabel = rating ? rating.toFixed(1) : 'N/A';
+        const displayTitle = getTitle(a);
+        const epInfo = a.status === 'Ongoing' ? `EP ${a.episodes_current || '?'}` : (a.episodes_total ? `${a.episodes_total} EP` : '');
+        return `
+        <div class="anime-card-poster" onclick="location.href='/detail.html?id=${a.id}'">
+            <img src="${a.poster_url}" alt="${displayTitle}" loading="lazy" onerror="this.src='https://via.placeholder.com/155x230/111120/ff2d6b?text=No+Poster'">
+            <span class="status-badge status-${a.status}">${a.status}</span>
+            ${epInfo ? `<span class="ep-badge-overlay">${epInfo}</span>` : ''}
+            <span class="rating-badge ${rClass}">⭐ ${rLabel}</span>
+            <div class="poster-overlay">
+                <div class="overlay-title">${displayTitle}</div>
+                <div class="overlay-meta">
+                    <span class="overlay-rating">⭐ ${rLabel}</span>
+                    <button class="overlay-add-btn" onclick="event.stopPropagation(); toggleWatchlistCard(event, ${a.id}, this)" title="Add to List">+</button>
                 </div>
-            </div>`;
-        }).join('');
-    } catch { console.error(`${sectionId} scroll row error`); }
+            </div>
+        </div>`;
+    }).join('');
 }
 
 function filterByStatus(statusVal) {
@@ -718,43 +686,26 @@ function normalizeSearch(q) {
     return unique.join(' ');
 }
 
-// BUG 2: class-based show/hide (CSS controls default hidden state via #searchClear { display:none })
-if (searchClear) {
-    searchClear.classList.remove('visible');          // ensure hidden on load
+// Consistently handle search input and clear button
+if (searchInput) {
+    const debouncedSearch = debounce(() => fetchAnime(currentMode), 350);
+    searchInput.addEventListener('input', () => {
+        if (searchClear) searchClear.classList.toggle('visible', searchInput.value.length > 0);
+        debouncedSearch();
+    });
+}
 
+const handleClear = () => {
     if (searchInput) {
-        searchInput.addEventListener('input', () => {
-            searchClear.classList.toggle('visible', searchInput.value.length > 0);
-        });
-    }
-
-    searchClear.addEventListener('click', () => {
-        if (searchInput) {
-            searchInput.value = '';
-            searchInput.dispatchEvent(new Event('input')); // triggers debounced search
-            searchInput.focus();
-        }
-        searchClear.classList.remove('visible');
+        searchInput.value = '';
+        searchInput.focus();
+        if (searchClear) searchClear.classList.remove('visible');
         fetchAnime(currentMode, false, false);
-    });
-}
+    }
+};
 
-// Legacy clearSearchBtn handler (index.html may still use old ID)
-if (clearSearchBtn) {
-    clearSearchBtn.addEventListener('click', () => {
-        if (searchInput) searchInput.value = '';
-        fetchAnime(currentMode);
-    });
-}
-
-if (searchInput && !searchClear) {
-    // Only attach if Feature 2 searchClear is not present
-    const debouncedSearch = debounce(() => fetchAnime(currentMode), 350);
-    searchInput.addEventListener('input', debouncedSearch);
-} else if (searchInput) {
-    const debouncedSearch = debounce(() => fetchAnime(currentMode), 350);
-    searchInput.addEventListener('input', debouncedSearch);
-}
+if (searchClear)    searchClear.addEventListener('click', handleClear);
+if (clearSearchBtn) clearSearchBtn.addEventListener('click', handleClear);
 
 const statusFilter   = document.getElementById('statusFilter');
 const categoryFilter = document.getElementById('categoryFilter');
@@ -911,14 +862,27 @@ async function pollLastUpdate() {
 
 /* ════════════════
    INIT
-════════════════ */
+   ════════════════ */
 (async function init() {
-    await checkAuth();
-    initSakura();
-    fetchAnime('home', false, true);
-    fetchHeroAnime();          // BUG 2: hero fetched separately
-    registerServiceWorker();
-    checkFirstLogin();
-    pollLastUpdate();          // Feature 1: show last update time
-    setInterval(pollLastUpdate, 60_000);
+    try {
+        await checkAuth();
+        initSakura();
+        await fetchAnime('home', false, true);
+        fetchHeroAnime();
+        registerServiceWorker();
+        checkFirstLogin();
+        pollLastUpdate();
+        setInterval(pollLastUpdate, 60_000);
+    } catch (err) {
+        console.error('Initialization failed:', err);
+        // Fallback: remove loader even if init failed so user isn't stuck
+        const grid = document.getElementById('animeGrid');
+        if (grid) {
+            const loader = grid.querySelector('.loading');
+            if (loader) loader.remove();
+            if (grid.innerHTML === '') {
+                grid.innerHTML = '<div class="no-results"><h3>⚠️ System Error</h3><p>Failed to load the application. Please refresh or try again later.</p></div>';
+            }
+        }
+    }
 })();

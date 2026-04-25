@@ -32,11 +32,25 @@ def serialize_anime(row):
     return d
 
 app = Flask(__name__, static_folder='../frontend')
-# FEATURE: Use environment secret with fallback to a stable local key
-# We avoid os.getlogin() as it fails in many server/container environments (Render/Docker)
-_local_id = os.environ.get('USER', os.environ.get('USERNAME', 'server'))
-_local_secret = hashlib.sha256(f"{os.path.abspath(__file__)}{_local_id}".encode()).hexdigest()
-app.secret_key = os.environ.get('SECRET_KEY', _local_secret)
+# FEATURE: Use environment secret with fallback to a persistent local key
+def _get_persistent_secret():
+    secret_file = os.path.join(os.path.dirname(__file__), '.secret_key')
+    if os.path.exists(secret_file):
+        with open(secret_file, 'r') as f:
+            return f.read().strip()
+    
+    # Generate new persistent secret
+    new_secret = secrets.token_hex(32)
+    try:
+        with open(secret_file, 'w') as f:
+            f.write(new_secret)
+    except Exception:
+        # Fallback to dynamic but slightly more stable key if file write fails
+        _local_id = os.environ.get('USER', os.environ.get('USERNAME', 'server'))
+        return hashlib.sha256(f"{os.path.abspath(__file__)}{_local_id}".encode()).hexdigest()
+    return new_secret
+
+app.secret_key = os.environ.get('SECRET_KEY', _get_persistent_secret())
 
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=365)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -49,6 +63,10 @@ _last_seen_lock = threading.Lock()
 
 @app.before_request
 def update_last_seen():
+    # FEATURE: Skip for static files and non-essential requests to prevent DB lock contention
+    if request.path.startswith('/static/') or any(request.path.endswith(ext) for ext in ['.js', '.css', '.png', '.jpg', '.ico']):
+        return
+
     if 'user_id' in session:
         uid = session['user_id']
         now_epoch = _time.monotonic()
@@ -56,12 +74,16 @@ def update_last_seen():
             if now_epoch - _last_seen_cache.get(uid, 0) < 60:
                 return  # Skip — written recently
             _last_seen_cache[uid] = now_epoch
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        cursor.execute("UPDATE users SET last_seen = ? WHERE id = ?", (now, uid))
-        conn.commit()
-        conn.close()
+        
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            cursor.execute("UPDATE users SET last_seen = ? WHERE id = ?", (now, uid))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Non-critical Error: Could not update last_seen: {e}")
 # FEATURE: Split Deployment Support (Render Backend + Vercel Frontend)
 # Using regex to allow all Vercel subdomains and local development ports
 import re
@@ -114,8 +136,9 @@ def admin_required(f):
     return decorated_function
 
 def send_actual_email(to_email, subject, body):
-    if SMTP_USER == "your-email@gmail.com":
-        print(f"DEBUG: [EMAIL LOG] To: {to_email} | Subject: {subject} | Body: {body}")
+    # FEATURE: Improved reliability with better logging and debug checks
+    if not SMTP_USER or SMTP_USER == "your-email@gmail.com":
+        print(f"SIMULATION: [EMAIL LOG] To: {to_email} | Subject: {subject}")
         return True
         
     try:
@@ -126,13 +149,17 @@ def send_actual_email(to_email, subject, body):
         msg.attach(MIMEText(body, 'plain'))
         
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.set_debuglevel(0) # Set to 1 for verbose SMTP logs
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
         server.send_message(msg)
         server.quit()
         return True
+    except smtplib.SMTPAuthenticationError:
+        print(f"CRITICAL: SMTP Authentication failed for {SMTP_USER}. Check credentials.")
+        return False
     except Exception as e:
-        print(f"Error sending email: {e}")
+        print(f"ERROR: Failed to send email to {to_email}: {e}")
         return False
 
 # VAPID setup
@@ -311,8 +338,8 @@ def scheduled_update_all():
 # Multi-worker gunicorn would spin up N schedulers without this guard.
 if not os.environ.get('VERCEL'):
     scheduler = BackgroundScheduler(daemon=True)
-    # Feature 1: Changed from 30 min to 12 hours to avoid AniList rate limits
-    scheduler.add_job(func=scheduled_update,     trigger='interval', hours=12,
+    # Feature 1: Increased frequency to 6 hours for better data freshness
+    scheduler.add_job(func=scheduled_update,     trigger='interval', hours=6,
                       id='scheduled_update',     replace_existing=True,
                       max_instances=1,            coalesce=True)
     scheduler.add_job(func=scheduled_update_all, trigger='interval', hours=12,
@@ -571,8 +598,54 @@ def get_last_update():
     return jsonify({'last_update': _last_update_time})
 
 # Feature 1: Run an immediate non-blocking sync on startup (after function defined)
+# FEATURE: Added a 10s delay to prevent DB contention right at startup
+def _delayed_sync():
+    import time
+    time.sleep(10)
+    _run_update_and_track()
+
 if not os.environ.get('VERCEL'):
-    threading.Thread(target=_run_update_and_track, daemon=True).start()
+    threading.Thread(target=_delayed_sync, daemon=True).start()
+
+@app.route('/api/home/combined', methods=['GET'])
+def get_home_combined():
+    # Performance Optimization: Batch common home page requests into one
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. Trending (Compact List)
+    cursor.execute("""
+        SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total
+        FROM anime WHERE is_approved = 1 AND is_adult = 0
+        ORDER BY COALESCE(trending_rank, 9999) ASC, rating_score DESC LIMIT 10
+    """)
+    trending = [serialize_anime(r) for r in cursor.fetchall()]
+    
+    # 2. Ongoing (Scroll Row)
+    cursor.execute("""
+        SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total
+        FROM anime WHERE is_approved = 1 AND is_adult = 0 AND status = 'Ongoing'
+        ORDER BY COALESCE(trending_rank, 9999) ASC, rating_score DESC LIMIT 20
+    """)
+    ongoing = [serialize_anime(r) for r in cursor.fetchall()]
+    
+    # 3. Completed (Scroll Row)
+    cursor.execute("""
+        SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total
+        FROM anime WHERE is_approved = 1 AND is_adult = 0 AND status IN ('Completed', 'Released')
+        ORDER BY release_date DESC, rating_score DESC LIMIT 20
+    """)
+    completed = [serialize_anime(r) for r in cursor.fetchall()]
+    
+    conn.close()
+    
+    resp = make_response(jsonify({
+        "trending": trending,
+        "ongoing": ongoing,
+        "completed": completed
+    }))
+    resp.headers['Cache-Control'] = 'public, max-age=120'
+    return resp
 
 @app.route('/api/anime/<int:anime_id>', methods=['GET'])
 def get_anime_detail(anime_id):
@@ -617,77 +690,41 @@ def get_related_anime(anime_id):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Get current anime metadata
-    cursor.execute("SELECT genres, rating_score, status FROM anime WHERE id = ?", (anime_id,))
-    current = cursor.fetchone()
-    if not current:
-        conn.close()
-        return jsonify([])
-
-    # Parse genres — stored as comma-separated string
-    raw_genres = current['genres'] or ''
-    try:
-        import json as _json
-        current_genres = set(_json.loads(raw_genres)) if raw_genres.startswith('[') else set(g.strip() for g in raw_genres.split(',') if g.strip())
-    except Exception:
-        current_genres = set(g.strip() for g in raw_genres.split(',') if g.strip())
-
-    # FEATURE 3: Genre-overlap scoring (Spotify-style relevance)
-    if not current_genres:
-        # Fallback: top-scored approved anime
-        cursor.execute(
-            "SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total "
-            "FROM anime WHERE id != ? AND is_approved = 1 AND is_adult = 0 "
-            "ORDER BY rating_score DESC LIMIT 12", (anime_id,)
-        )
-        related = [serialize_anime(r) for r in cursor.fetchall()]
-        conn.close()
-        return make_response(json.dumps(related), 200, {'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300'})
-
-    # Fetch all approved, non-adult candidates
-    cursor.execute(
-        "SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total "
-        "FROM anime WHERE id != ? AND is_approved = 1 AND is_adult = 0",
-        (anime_id,)
-    )
-    candidates = cursor.fetchall()
-    conn.close()
-
-    scored = []
-    for c in candidates:
-        c_raw = c['genres'] or ''
-        try:
-            c_genres = set(_json.loads(c_raw)) if c_raw.startswith('[') else set(g.strip() for g in c_raw.split(',') if g.strip())
-        except Exception:
-            c_genres = set(g.strip() for g in c_raw.split(',') if g.strip())
-
-        overlap = len(current_genres & c_genres)
-        if overlap == 0:
-            continue
-
-        relevance = overlap * 2.0 + (c['rating_score'] or 0) * 0.1
-        if (c['status'] or '').lower() in ('ongoing', 'airing'):
-            relevance += 1.5
-        scored.append((relevance, serialize_anime(c)))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    results = [item[1] for item in scored[:16]]
+    # Optimized Query: Find anime with overlapping genres using the relational table
+    # This avoids fetching all candidates into Python memory.
+    cursor.execute("""
+        SELECT a.id, a.title, a.title_english, a.poster_url, a.rating_score, a.status, a.genres, a.episodes_current, a.episodes_total,
+               COUNT(ag_other.genre_id) as overlap_count
+        FROM anime a
+        JOIN anime_genres ag_target ON ag_target.anime_id = ?
+        JOIN anime_genres ag_other ON ag_other.genre_id = ag_target.genre_id AND ag_other.anime_id = a.id
+        WHERE a.id != ? 
+          AND a.is_approved = 1 
+          AND a.is_adult = 0
+        GROUP BY a.id
+        ORDER BY overlap_count DESC, a.rating_score DESC
+        LIMIT 16
+    """, (anime_id, anime_id))
+    
+    related = [serialize_anime(r) for r in cursor.fetchall()]
 
     # Pad with top-scored if fewer than 4
-    if len(results) < 4:
-        exclude_ids = [r['id'] for r in results] or [0]
-        ph = ','.join('?' * len(exclude_ids))
-        conn2 = get_db_connection()
-        extras = conn2.execute(
-            f"SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total "
-            f"FROM anime WHERE id != ? AND is_approved = 1 AND is_adult = 0 "
-            f"AND id NOT IN ({ph}) ORDER BY rating_score DESC LIMIT ?",
-            [anime_id] + exclude_ids + [12 - len(results)]
-        ).fetchall()
-        conn2.close()
-        results += [serialize_anime(r) for r in extras]
+    if len(related) < 4:
+        exclude_ids = [r['id'] for r in related] + [anime_id]
+        placeholders = ','.join('?' for _ in exclude_ids)
+        cursor.execute(f"""
+            SELECT id, title, title_english, poster_url, rating_score, status, genres, episodes_current, episodes_total
+            FROM anime
+            WHERE is_approved = 1 
+              AND is_adult = 0 
+              AND id NOT IN ({placeholders})
+            ORDER BY rating_score DESC
+            LIMIT ?
+        """, exclude_ids + [12 - len(related)])
+        related += [serialize_anime(r) for r in cursor.fetchall()]
 
-    resp = make_response(json.dumps(results))
+    conn.close()
+    resp = make_response(json.dumps(related))
     resp.headers['Content-Type'] = 'application/json'
     resp.headers['Cache-Control'] = 'public, max-age=300'
     return resp

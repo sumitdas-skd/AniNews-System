@@ -9,7 +9,8 @@ def get_db_connection():
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
 
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # FEATURE: Increase timeout to 30s to handle concurrent write locks better
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     # Performance pragmas applied per-connection
     conn.execute("PRAGMA journal_mode=WAL")
@@ -17,6 +18,7 @@ def get_db_connection():
     conn.execute("PRAGMA cache_size=-65536")   # 64 MB page cache
     conn.execute("PRAGMA temp_store=MEMORY")
     conn.execute("PRAGMA mmap_size=268435456")  # 256 MB memory-mapped I/O
+    conn.execute("PRAGMA busy_timeout = 30000") # 30s busy timeout
     return conn
 
 def init_db():
