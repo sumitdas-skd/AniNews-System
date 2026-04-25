@@ -755,17 +755,61 @@ def get_related_anime(anime_id):
     resp.headers['Cache-Control'] = 'public, max-age=300'
     return resp
 
-@app.route('/api/admin/force-sync', methods=['POST'])
-@admin_required
+@app.route('/api/debug/status', methods=['GET'])
+def debug_status():
+    """Public debug endpoint — shows DB counts and sync status."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as total FROM anime")
+        total = dict(cursor.fetchone()).get('total', '?')
+        cursor.execute("SELECT COUNT(*) as approved FROM anime WHERE is_approved = 1")
+        approved = dict(cursor.fetchone()).get('approved', '?')
+        cursor.execute("SELECT COUNT(*) as visible FROM anime WHERE is_approved = 1 AND is_adult = 0")
+        visible = dict(cursor.fetchone()).get('visible', '?')
+        cursor.execute("SELECT COUNT(*) as adult FROM anime WHERE is_adult = 1")
+        adult = dict(cursor.fetchone()).get('adult', '?')
+        conn.close()
+        return jsonify({
+            "db_total": total,
+            "db_approved": approved,
+            "db_visible_on_home": visible,
+            "db_adult": adult,
+            "last_sync": _last_update_time,
+            "db_type": "postgresql" if os.environ.get('DATABASE_URL') else "sqlite"
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+@app.route('/api/admin/force-sync', methods=['POST', 'GET'])
 def force_sync():
-    """Manually trigger a full AniList fetch and DB populate. Use after a fresh deployment."""
+    """Trigger a full AniList fetch. POST requires admin session; GET requires ?key=SYNC_SECRET env var."""
+    if request.method == 'GET':
+        secret = os.environ.get('SYNC_SECRET', '')
+        provided = request.args.get('key', '')
+        if not secret or provided != secret:
+            return jsonify({"status": "error", "message": "Forbidden"}), 403
+    else:
+        # POST — require admin session
+        if 'user_id' not in session:
+            return jsonify({"status": "error", "message": "Login required"}), 401
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT role FROM users WHERE id = ?", (session['user_id'],))
+        user = cursor.fetchone()
+        conn.close()
+        if not user or dict(user).get('role') != 'admin':
+            return jsonify({"status": "error", "message": "Admin required"}), 403
+
     def _run():
         try:
             _run_update_and_track()
         except Exception as e:
-            print(f"[force-sync] Error during sync: {e}")
+            import traceback
+            print(f"[force-sync] Error: {e}\n{traceback.format_exc()}")
     threading.Thread(target=_run, daemon=True).start()
-    return jsonify({"status": "success", "message": "Full sync triggered in background. Check /api/last-update for progress."})
+    return jsonify({"status": "success", "message": "Full sync triggered in background. Poll /api/debug/status or /api/last-update to watch progress."})
 
 @app.route('/api/admin/anime/<int:anime_id>', methods=['DELETE'])
 @admin_required
