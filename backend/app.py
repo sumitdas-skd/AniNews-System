@@ -375,6 +375,8 @@ if not os.environ.get('VERCEL'):
 # Keyed on the full query-string; expires after 30 seconds
 _anime_cache = {}          # key -> (timestamp, response_data)
 _ANIME_CACHE_TTL = 30      # seconds
+_last_query = None
+_last_params = None
 _anime_cache_lock = threading.Lock()
 
 def _get_cached(key):
@@ -519,6 +521,9 @@ def get_anime():
     query += " LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
+    global _last_query, _last_params
+    _last_query = query
+    _last_params = params
     print(f"DEBUG QUERY: {query} | PARAMS: {params}")
 
     cursor = conn.cursor()
@@ -1292,6 +1297,8 @@ def debug_db():
         cursor.execute("SELECT id, title, is_approved, is_adult, status, trending_rank FROM anime ORDER BY id DESC LIMIT 5")
         latest_anime = cursor.fetchall()
         
+        global _last_query, _last_params
+        
         db_type = "PostgreSQL" if os.environ.get('DATABASE_URL') else "SQLite"
         
         conn.close()
@@ -1302,6 +1309,8 @@ def debug_db():
             "approved": [dict(s) for s in approved_counts],
             "adult": [dict(s) for s in adult_counts],
             "latest_samples": [dict(a) for a in latest_anime],
+            "last_query": globals().get('_last_query'),
+            "last_params": str(globals().get('_last_params')),
             "env_db_path": os.environ.get('DB_PATH'),
             "is_prod": is_prod,
             "migration_trigger_result": migration_result
