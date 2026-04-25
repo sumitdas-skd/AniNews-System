@@ -206,6 +206,8 @@ def init_db():
             password TEXT NOT NULL,
             role TEXT DEFAULT 'user',
             last_seen TIMESTAMP,
+            reset_token TEXT,
+            reset_token_expiry TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -219,6 +221,57 @@ def init_db():
             UNIQUE(user_id, anime_id)
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS streaming_platforms (
+            id SERIAL PRIMARY KEY,
+            anime_id INTEGER,
+            platform_name TEXT,
+            url TEXT,
+            UNIQUE(anime_id, platform_name)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reminders (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER,
+            anime_id INTEGER,
+            last_notified_episode INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, anime_id)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id SERIAL PRIMARY KEY,
+            subscription_json TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reviews (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER,
+            anime_id INTEGER,
+            rating REAL,
+            comment TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Safe column migrations for users table (add new columns if missing)
+    user_columns = [
+        ('reset_token', 'TEXT'),
+        ('reset_token_expiry', 'TEXT'),
+        ('last_seen', 'TIMESTAMP'),
+    ]
+    for col_name, col_type in user_columns:
+        try:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+        except: pass
 
     # Indexes for performance
     try:
