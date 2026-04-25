@@ -337,6 +337,23 @@ def init_db():
     # Indexes (Postgres handles IF NOT EXISTS)
     try:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_title_search ON anime(title)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_status ON anime(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_country ON anime(country)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_is_approved ON anime(is_approved)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_trending ON anime(trending_rank)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_anime ON reviews(anime_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime ON episodes(anime_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_list_home ON anime(is_approved, is_adult, status, release_date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_list_trending ON anime(is_approved, is_adult, trending_rank)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_rating ON anime(rating_score)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_anime ON watchlist(anime_id)")
+    except Exception as e:
+        print(f"Index creation warning: {e}")
+    
+    conn.commit()
+    conn.close()
 
     # --- AUTO-MIGRATION LOGIC ---
     # If we are on Postgres and it's empty, try to import from local SQLite file
@@ -406,24 +423,6 @@ def _migrate_data_to_pg(sqlite_path, pg_conn):
         print("Migration to PostgreSQL completed successfully!")
     except Exception as e:
         print(f"ERROR during migration: {e}")
-
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_status ON anime(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_country ON anime(country)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_is_approved ON anime(is_approved)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_trending ON anime(trending_rank)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_anime ON reviews(anime_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime ON episodes(anime_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_list_home ON anime(is_approved, is_adult, status, release_date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_list_trending ON anime(is_approved, is_adult, trending_rank)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_rating ON anime(rating_score)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_anime ON watchlist(anime_id)")
-    except Exception:
-        pass
-    
-    conn.commit()
-    conn.close()
 
 # Export IntegrityError for use in other files
 if DATABASE_URL:
