@@ -7,8 +7,8 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'anime.db'))
 
 def get_db_connection():
-    # Only use PostgreSQL if explicitly enabled, otherwise favor the pre-populated SQLite DB
-    if DATABASE_URL and os.environ.get('ENABLE_POSTGRES') == 'true':
+    # If DATABASE_URL is present, we use PostgreSQL for persistence
+    if DATABASE_URL:
         print(f"Connecting to PostgreSQL...")
         import psycopg2
         from psycopg2.extras import RealDictCursor
@@ -336,6 +336,77 @@ def init_db():
     
     # Indexes (Postgres handles IF NOT EXISTS)
     try:
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_title_search ON anime(title)")
+
+    # --- AUTO-MIGRATION LOGIC ---
+    # If we are on Postgres and it's empty, try to import from local SQLite file
+    if DATABASE_URL:
+        try:
+            pg_conn = get_db_connection()
+            pg_cursor = pg_conn.cursor()
+            pg_cursor.execute("SELECT COUNT(*) as count FROM anime")
+            count = pg_cursor.fetchone()
+            if count and (dict(count)['count'] < 10):
+                print("Postgres database is empty. Checking for local SQLite data to migrate...")
+                if os.path.exists(DB_PATH):
+                    print(f"Found local data at {DB_PATH}. Starting migration to Postgres...")
+                    _migrate_data_to_pg(DB_PATH, pg_conn)
+            pg_conn.close()
+        except Exception as e:
+            print(f"Migration check failed: {e}")
+
+def _migrate_data_to_pg(sqlite_path, pg_conn):
+    import sqlite3
+    try:
+        sl_conn = sqlite3.connect(sqlite_path)
+        sl_conn.row_factory = sqlite3.Row
+        sl_cursor = sl_conn.cursor()
+        
+        pg_cursor = pg_conn.cursor()
+        
+        # 1. Migrate Genres
+        sl_cursor.execute("SELECT * FROM genres")
+        for row in sl_cursor.fetchall():
+            pg_cursor.execute("INSERT INTO genres (id, genre_name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", (row['id'], row['genre_name']))
+        
+        # 2. Migrate Anime
+        sl_cursor.execute("SELECT * FROM anime")
+        anime_rows = sl_cursor.fetchall()
+        print(f"Migrating {len(anime_rows)} anime records...")
+        for row in anime_rows:
+            d = dict(row)
+            cols = list(d.keys())
+            vals = [d[c] for c in cols]
+            placeholders = ", ".join(["%s"] * len(cols))
+            sql = f"INSERT INTO anime ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (anilist_id) DO NOTHING"
+            pg_cursor.execute(sql, vals)
+            
+        # 3. Migrate Episodes
+        sl_cursor.execute("SELECT * FROM episodes")
+        ep_rows = sl_cursor.fetchall()
+        print(f"Migrating {len(ep_rows)} episode records...")
+        for row in ep_rows:
+            pg_cursor.execute("INSERT INTO episodes (anime_id, episode_number, episode_name, release_date) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", 
+                             (row['anime_id'], row['episode_number'], row['episode_name'], row.get('release_date')))
+                             
+        # 4. Migrate Users
+        sl_cursor.execute("SELECT * FROM users")
+        user_rows = sl_cursor.fetchall()
+        print(f"Migrating {len(user_rows)} user records...")
+        for row in user_rows:
+            d = dict(row)
+            cols = list(d.keys())
+            vals = [d[c] for c in cols]
+            placeholders = ", ".join(["%s"] * len(cols))
+            sql = f"INSERT INTO users ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (email) DO NOTHING"
+            pg_cursor.execute(sql, vals)
+
+        pg_conn.commit()
+        sl_conn.close()
+        print("Migration to PostgreSQL completed successfully!")
+    except Exception as e:
+        print(f"ERROR during migration: {e}")
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_status ON anime(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_country ON anime(country)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_is_approved ON anime(is_approved)")
