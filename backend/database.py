@@ -376,67 +376,78 @@ def init_db():
 
 def _migrate_data_to_pg(sqlite_path, pg_conn):
     import sqlite3
+    sl_conn = None
     try:
         sl_conn = sqlite3.connect(sqlite_path)
         sl_conn.row_factory = sqlite3.Row
         sl_cursor = sl_conn.cursor()
         
-        pg_cursor = pg_conn.cursor()
-        
+        # Use a fresh cursor for each major operation to avoid 'closed' issues
+        def get_fresh_pg_cursor():
+            return pg_conn.cursor()
+
         # 1. Migrate Genres
+        print("Migrating genres...")
+        pg_cursor = get_fresh_pg_cursor()
         sl_cursor.execute("SELECT * FROM genres")
         for row in sl_cursor.fetchall():
             pg_cursor.execute("INSERT INTO genres (id, genre_name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", (row['id'], row['genre_name']))
+        pg_conn.commit()
         
         # 2. Migrate Anime
+        print("Migrating anime...")
+        pg_cursor = get_fresh_pg_cursor()
+        pg_cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'anime'")
+        target_cols = [c['column_name'].lower() for c in pg_cursor.fetchall()]
+        
         sl_cursor.execute("SELECT * FROM anime")
         anime_rows = sl_cursor.fetchall()
-        print(f"Migrating {len(anime_rows)} anime records...")
-        
-        # Get target columns to avoid schema mismatch errors
-        pg_cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'anime'")
-        target_cols = [c['column_name'] for c in pg_cursor.fetchall()]
+        print(f"Transferring {len(anime_rows)} records...")
         
         for row in anime_rows:
             d = dict(row)
-            # Only keep columns that exist in the target table
             cols = [c for c in d.keys() if c.lower() in target_cols]
             vals = [d[c] for c in cols]
             placeholders = ", ".join(["%s"] * len(cols))
             sql = f"INSERT INTO anime ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (anilist_id) DO NOTHING"
             pg_cursor.execute(sql, vals)
-            
+        pg_conn.commit()
+
         # 3. Migrate Episodes
+        print("Migrating episodes...")
+        pg_cursor = get_fresh_pg_cursor()
         sl_cursor.execute("SELECT * FROM episodes")
         ep_rows = sl_cursor.fetchall()
-        print(f"Migrating {len(ep_rows)} episode records...")
         for row in ep_rows:
             pg_cursor.execute("INSERT INTO episodes (anime_id, episode_number, episode_name, release_date) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", 
                              (row['anime_id'], row['episode_number'], row['episode_name'], row.get('release_date')))
+        pg_conn.commit()
                              
         # 4. Migrate Users
+        print("Migrating users...")
+        pg_cursor = get_fresh_pg_cursor()
         sl_cursor.execute("SELECT * FROM users")
-        user_rows = sl_cursor.fetchall()
-        print(f"Migrating {len(user_rows)} user records...")
-        for row in user_rows:
+        for row in sl_cursor.fetchall():
             d = dict(row)
             cols = list(d.keys())
             vals = [d[c] for c in cols]
             placeholders = ", ".join(["%s"] * len(cols))
             sql = f"INSERT INTO users ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (email) DO NOTHING"
             pg_cursor.execute(sql, vals)
-
         pg_conn.commit()
         
-        # 5. Fix NULL visibility flags that prevent anime from showing up
+        # 5. Fix visibility
+        pg_cursor = get_fresh_pg_cursor()
         pg_cursor.execute("UPDATE anime SET is_approved = 1 WHERE is_approved IS NULL")
         pg_cursor.execute("UPDATE anime SET is_adult = 0 WHERE is_adult IS NULL")
         pg_conn.commit()
         
-        sl_conn.close()
         print("Migration to PostgreSQL completed successfully!")
     except Exception as e:
         print(f"ERROR during migration: {e}")
+        raise e
+    finally:
+        if sl_conn: sl_conn.close()
 
 # Export IntegrityError for use in other files
 if DATABASE_URL:
