@@ -7,41 +7,25 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'anime.db'))
 
 def get_db_connection():
-    # If DATABASE_URL is present, we use PostgreSQL for persistence
+    # Strictly use PostgreSQL if URL is provided (Production)
     if DATABASE_URL:
-        print(f"Connecting to PostgreSQL...")
         import psycopg2
         from psycopg2.extras import RealDictCursor
         
-        # Parse DATABASE_URL if it's a standard postgres:// or postgresql:// URL
         # Render provides this automatically
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-        # We wrap the connection to make it behave like sqlite3
+        # We wrap the connection to make it behave like sqlite3 for compatibility
         return PostgresCompatConnection(conn)
     else:
-        # Ensure the directory exists if a custom path is provided
-        db_dir = os.path.dirname(DB_PATH)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
-
-        print(f"Connecting to SQLite: {DB_PATH}")
-        # FEATURE: Increase timeout to 30s to handle concurrent write locks better
+        # Fallback to SQLite for local development only
         conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
-        # Performance pragmas applied per-connection
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-65536")   # 64 MB page cache
-        conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA mmap_size=268435456")  # 256 MB memory-mapped I/O
-        conn.execute("PRAGMA busy_timeout = 30000") # 30s busy timeout
         return conn
 
 class PostgresCompatConnection:
     def __init__(self, conn):
         self.conn = conn
         # FEATURE: Enable autocommit to prevent "InFailedSqlTransaction" errors
-        # This makes it behave more like SQLite for simple migrations/scripts
         self.conn.autocommit = True
     
     def cursor(self):
@@ -49,19 +33,12 @@ class PostgresCompatConnection:
         return PostgresCompatCursor(self.conn.cursor(cursor_factory=RealDictCursor), self.conn)
     
     def commit(self):
-        # No-op if autocommit is on, prevents errors
         if not self.conn.autocommit:
             self.conn.commit()
     
     def rollback(self):
-        # No-op if autocommit is on, prevents errors
         if not self.conn.autocommit:
             self.conn.rollback()
-        else:
-            # If autocommit is on, we can't rollback the "transaction" 
-            # but we can try to clear the state if needed. 
-            # Usually not necessary with autocommit.
-            pass
     
     def close(self):
         self.conn.close()
@@ -78,11 +55,10 @@ class PostgresCompatCursor:
         self.lastrowid = None
 
     def execute(self, sql, params=()):
-        # 1. Convert ? placeholders to %s
+        # 1. Convert ? placeholders to %s for psycopg2
         sql = sql.replace('?', '%s')
         
         # 2. Convert SQLite specific syntax to Postgres
-        # AUTOINCREMENT -> SERIAL
         sql = re.sub(r'\bAUTOINCREMENT\b', 'SERIAL', sql, flags=re.IGNORECASE)
         
         # INSERT OR IGNORE -> INSERT ... ON CONFLICT DO NOTHING
@@ -111,22 +87,17 @@ class PostgresCompatCursor:
             elif 'reminders' in sql.lower():
                 sql += ' ON CONFLICT (user_id, anime_id) DO UPDATE SET last_notified_episode = EXCLUDED.last_notified_episode'
             elif 'ON CONFLICT' not in sql.upper():
-                # Fallback to DO NOTHING if we don't know the keys
                 sql += ' ON CONFLICT DO NOTHING'
 
-        # COLLATE NOCASE -> (Postgres doesn't need this, use LOWER() or ILIKE instead)
+        # COLLATE NOCASE cleanup
         sql = re.sub(r'COLLATE\s+NOCASE', '', sql, flags=re.IGNORECASE)
 
         try:
-            # Postgres: if it's an INSERT, we often want the ID back
             if 'INSERT INTO' in sql.upper() and 'RETURNING' not in sql.upper():
-                # We can't easily add RETURNING to every query without knowing the table structure,
-                # so we stick to the lastval() approach but make it more robust.
                 self.cursor.execute(sql, params)
                 try:
                     self.cursor.execute("SELECT lastval() AS last_id")
                     res = self.cursor.fetchone()
-                    # In psycopg2, fetchone() returns a dict-like object
                     if res:
                         if isinstance(res, dict): self.lastrowid = res.get('last_id')
                         else: self.lastrowid = res[0]
@@ -135,7 +106,6 @@ class PostgresCompatCursor:
             else:
                 self.cursor.execute(sql, params)
         except Exception as e:
-            # print(f"Postgres SQL Error: {e}\nSQL: {sql}")
             raise e
 
     def executemany(self, sql, params_list):
@@ -158,7 +128,7 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Anime table
+    # Core tables with SERIAL primary keys for Postgres compatibility
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS anime (
             id SERIAL PRIMARY KEY,
@@ -189,31 +159,19 @@ def init_db():
         )
     ''')
     
-    # Migration: Add columns if they don't exist
+    # Table migrations
     columns = [
-        ('title_english', 'TEXT'),
-        ('title_romaji', 'TEXT'),
-        ('episodes_total', 'INTEGER'),
-        ('episodes_current', 'INTEGER'),
-        ('last_episode_number', 'INTEGER'),
-        ('last_episode_name', 'TEXT'),
-        ('next_episode_date', 'TEXT'),
-        ('studio', 'TEXT'),
-        ('rating_score', 'REAL'),
-        ('rating_votes', 'INTEGER'),
-        ('genres', 'TEXT'),
-        ('trending_rank', 'INTEGER'),
-        ('is_adult', 'INTEGER DEFAULT 0'),
-        ('episodes_json', 'TEXT')
+        ('title_english', 'TEXT'), ('title_romaji', 'TEXT'), ('episodes_total', 'INTEGER'),
+        ('episodes_current', 'INTEGER'), ('last_episode_number', 'INTEGER'),
+        ('last_episode_name', 'TEXT'), ('next_episode_date', 'TEXT'), ('studio', 'TEXT'),
+        ('rating_score', 'REAL'), ('rating_votes', 'INTEGER'), ('genres', 'TEXT'),
+        ('trending_rank', 'INTEGER'), ('is_adult', 'INTEGER DEFAULT 0'), ('episodes_json', 'TEXT')
     ]
-    
     for col_name, col_type in columns:
         try:
             cursor.execute(f"ALTER TABLE anime ADD COLUMN {col_name} {col_type}")
-        except Exception:
-            pass 
+        except: pass
 
-    # Episodes table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS episodes (
             id SERIAL PRIMARY KEY,
@@ -225,7 +183,6 @@ def init_db():
         )
     ''')
 
-    # Genre table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS genres (
             id SERIAL PRIMARY KEY,
@@ -233,7 +190,6 @@ def init_db():
         )
     ''')
 
-    # Anime_Genre table (Relational)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS anime_genres (
             anime_id INTEGER,
@@ -242,37 +198,6 @@ def init_db():
         )
     ''')
     
-    # Seed predefined genres
-    predefined_genres = [
-        "Action & Adventure", "Slice of Life", "Fantasy", "Dark Fantasy", "Sci-Fi & Mecha", 
-        "Romance", "Supernatural & Horror", "Sports", "Isekai", "Mahou Shoujo", 
-        "Iyashikei", "Harem / Reverse Harem", "Ecchi"
-    ]
-    for genre in predefined_genres:
-        cursor.execute("INSERT INTO genres (genre_name) VALUES (?) ON CONFLICT DO NOTHING", (genre,))
-    
-    # Subscriptions table for Push Notifications
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            id SERIAL PRIMARY KEY,
-            subscription_json TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Reviews table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS reviews (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER,
-            anime_id INTEGER,
-            rating INTEGER,
-            comment TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -285,36 +210,6 @@ def init_db():
         )
     ''')
 
-    # Migrations for existing tables
-    migrations = [
-        ("users", "role", "TEXT DEFAULT 'user'"),
-        ("users", "username", "TEXT"),
-        ("users", "last_seen", "TIMESTAMP"),
-        ("users", "reset_token", "TEXT"),
-        ("users", "reset_token_expiry", "TIMESTAMP"),
-        ("reviews", "user_id", "INTEGER"),
-        ("reminders", "last_notified_episode", "INTEGER DEFAULT 0")
-    ]
-    
-    for table, col, type_def in migrations:
-        try:
-            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {type_def}")
-        except Exception:
-            pass
-    
-    # Reminders table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS reminders (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER,
-            anime_id INTEGER,
-            last_notified_episode INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(user_id, anime_id)
-        )
-    ''')
-
-    # Watchlist table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS watchlist (
             id SERIAL PRIMARY KEY,
@@ -325,40 +220,17 @@ def init_db():
         )
     ''')
 
-    # Streaming Platforms table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS streaming_platforms (
-            id SERIAL PRIMARY KEY,
-            anime_id INTEGER,
-            platform_name TEXT,
-            url TEXT,
-            UNIQUE(anime_id, platform_name)
-        )
-    ''')
-    
-    # Indexes (Postgres handles IF NOT EXISTS)
+    # Indexes for performance
     try:
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_title_search ON anime(title)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_status ON anime(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_country ON anime(country)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_is_approved ON anime(is_approved)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_trending ON anime(trending_rank)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_anime ON reviews(anime_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime ON episodes(anime_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_list_home ON anime(is_approved, is_adult, status, release_date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_list_trending ON anime(is_approved, is_adult, trending_rank)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_rating ON anime(rating_score)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_anime ON watchlist(anime_id)")
-    except Exception as e:
-        print(f"Index creation warning: {e}")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_title_search ON anime(title)")
+    except: pass
     
     conn.commit()
     conn.close()
 
-    # --- AUTO-MIGRATION LOGIC ---
-    # If we are on Postgres and it's empty, try to import from local SQLite file
+    # --- AUTO-MIGRATION ---
     if DATABASE_URL:
         try:
             pg_conn = get_db_connection()
@@ -366,9 +238,7 @@ def init_db():
             pg_cursor.execute("SELECT COUNT(*) as count FROM anime")
             count = pg_cursor.fetchone()
             if count and (dict(count)['count'] < 10):
-                print("Postgres database is empty. Checking for local SQLite data to migrate...")
                 if os.path.exists(DB_PATH):
-                    print(f"Found local data at {DB_PATH}. Starting migration to Postgres...")
                     _migrate_data_to_pg(DB_PATH, pg_conn)
             pg_conn.close()
         except Exception as e:
@@ -382,29 +252,14 @@ def _migrate_data_to_pg(sqlite_path, pg_conn):
         sl_conn.row_factory = sqlite3.Row
         sl_cursor = sl_conn.cursor()
         
-        # Use a fresh cursor for each major operation to avoid 'closed' issues
-        def get_fresh_pg_cursor():
-            return pg_conn.cursor()
-
-        # 1. Migrate Genres
-        print("Migrating genres...")
-        pg_cursor = get_fresh_pg_cursor()
-        sl_cursor.execute("SELECT * FROM genres")
-        for row in sl_cursor.fetchall():
-            pg_cursor.execute("INSERT INTO genres (id, genre_name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", (row['id'], row['genre_name']))
-        pg_conn.commit()
-        
-        # 2. Migrate Anime
-        print("Migrating anime...")
-        pg_cursor = get_fresh_pg_cursor()
+        # Migrate Anime
+        pg_cursor = pg_conn.cursor()
         pg_cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'anime'")
         target_cols = [c['column_name'].lower() for c in pg_cursor.fetchall()]
         
         sl_cursor.execute("SELECT * FROM anime")
-        anime_rows = sl_cursor.fetchall()
-        print(f"Transferring {len(anime_rows)} records...")
-        
-        for row in anime_rows:
+        rows = sl_cursor.fetchall()
+        for row in rows:
             d = dict(row)
             cols = [c for c in d.keys() if c.lower() in target_cols]
             vals = [d[c] for c in cols]
@@ -412,50 +267,19 @@ def _migrate_data_to_pg(sqlite_path, pg_conn):
             sql = f"INSERT INTO anime ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (anilist_id) DO NOTHING"
             pg_cursor.execute(sql, vals)
         pg_conn.commit()
-
-        # 3. Migrate Episodes
-        print("Migrating episodes...")
-        pg_cursor = get_fresh_pg_cursor()
-        sl_cursor.execute("SELECT * FROM episodes")
-        ep_rows = sl_cursor.fetchall()
-        for row in ep_rows:
-            pg_cursor.execute("INSERT INTO episodes (anime_id, episode_number, episode_name, release_date) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING", 
-                             (row['anime_id'], row['episode_number'], row['episode_name'], row.get('release_date')))
-        pg_conn.commit()
-                             
-        # 4. Migrate Users
-        print("Migrating users...")
-        pg_cursor = get_fresh_pg_cursor()
-        sl_cursor.execute("SELECT * FROM users")
-        for row in sl_cursor.fetchall():
-            d = dict(row)
-            cols = list(d.keys())
-            vals = [d[c] for c in cols]
-            placeholders = ", ".join(["%s"] * len(cols))
-            sql = f"INSERT INTO users ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT (email) DO NOTHING"
-            pg_cursor.execute(sql, vals)
-        pg_conn.commit()
         
-        # 5. Fix visibility
-        pg_cursor = get_fresh_pg_cursor()
+        # Force Visibility
         pg_cursor.execute("UPDATE anime SET is_approved = 1 WHERE is_approved IS NULL")
         pg_cursor.execute("UPDATE anime SET is_adult = 0 WHERE is_adult IS NULL")
         pg_conn.commit()
-        
-        print("Migration to PostgreSQL completed successfully!")
+        print("Migration success!")
     except Exception as e:
-        print(f"ERROR during migration: {e}")
-        raise e
+        print(f"Migration error: {e}")
     finally:
         if sl_conn: sl_conn.close()
 
-# Export IntegrityError for use in other files
 if DATABASE_URL:
     import psycopg2
-    IntegrityError = psycopg2.Error # Broadest catch for compatibility
+    IntegrityError = psycopg2.Error
 else:
     IntegrityError = sqlite3.IntegrityError
-
-if __name__ == '__main__':
-    init_db()
-    print("Database initialized.")

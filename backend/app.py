@@ -1299,11 +1299,15 @@ def debug_db():
         
         global _last_query, _last_params
         
+        db_url = os.environ.get('DATABASE_URL', 'NOT_SET')
+        masked_url = db_url[:15] + "..." if len(db_url) > 15 else db_url
+        
         db_type = "PostgreSQL" if os.environ.get('DATABASE_URL') else "SQLite"
         
         conn.close()
         return jsonify({
             "db_type": db_type,
+            "db_url_masked": masked_url,
             "total_anime": dict(count)['count'] if count else 0,
             "statuses": [dict(s) for s in statuses],
             "approved": [dict(s) for s in approved_counts],
