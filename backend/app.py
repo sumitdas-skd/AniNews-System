@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from flask import Flask, request, jsonify, send_from_directory, session, make_response
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
-from database import get_db_connection, init_db
+from database import get_db_connection, init_db, IntegrityError
 from fetcher import update_database, fetch_anime_by_country
 from apscheduler.schedulers.background import BackgroundScheduler
 from pywebpush import webpush, WebPushException, Vapid
@@ -791,8 +791,8 @@ def register():
         cursor.execute("INSERT INTO users (email, username, password) VALUES (?, ?, ?)", (email, username, hashed_password))
         conn.commit()
         return jsonify({"status": "success", "message": "User registered successfully"})
-    except sqlite3.IntegrityError:
-        return jsonify({"status": "error", "message": "Email already exists"}), 400
+    except Exception: # Fallback for both DB types
+        return jsonify({"status": "error", "message": "Email already exists or registration failed"}), 400
     finally:
         conn.close()
 
@@ -1053,7 +1053,7 @@ def update_watchlist():
                 cursor.execute("INSERT INTO watchlist (user_id, anime_id) VALUES (?, ?)", (user_id, anime_id))
                 conn.commit()
                 return jsonify({"status": "success", "message": "Added to My List"})
-            except sqlite3.IntegrityError:
+            except IntegrityError:
                 return jsonify({"status": "success", "message": "Already in My List"})
         else:
             cursor.execute("DELETE FROM watchlist WHERE user_id = ? AND anime_id = ?", (user_id, anime_id))
@@ -1249,6 +1249,8 @@ def add_cache(response):
     if request.path.startswith('/api/anime'):
         response.cache_control.max_age = 300
     return response
+
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))

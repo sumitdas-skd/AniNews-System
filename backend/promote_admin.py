@@ -1,10 +1,7 @@
-import sqlite3
-import os
-
-DB_PATH = os.path.join(os.path.dirname(__file__), 'anime.db')
+from database import get_db_connection
 
 def promote_admin(email):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET role = 'admin' WHERE email = ?", (email,))
     conn.commit()

@@ -11,3 +11,4 @@ cryptography==46.0.5
 py-vapid==1.9.4
 python-dateutil==2.9.0.post0
 aiohttp==3.13.3
+psycopg2-binary==2.9.10
