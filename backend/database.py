@@ -7,7 +7,8 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'anime.db'))
 
 def get_db_connection():
-    if DATABASE_URL:
+    # Only use PostgreSQL if explicitly enabled, otherwise favor the pre-populated SQLite DB
+    if DATABASE_URL and os.environ.get('ENABLE_POSTGRES') == 'true':
         print(f"Connecting to PostgreSQL...")
         import psycopg2
         from psycopg2.extras import RealDictCursor
