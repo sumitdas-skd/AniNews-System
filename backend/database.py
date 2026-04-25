@@ -87,12 +87,20 @@ class PostgresCompatCursor:
         # INSERT OR IGNORE -> INSERT ... ON CONFLICT DO NOTHING
         if re.search(r'INSERT\s+OR\s+IGNORE\s+INTO', sql, flags=re.IGNORECASE):
             sql = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', sql, flags=re.IGNORECASE)
-            # This is a bit risky but works for simple cases in this app
-            if 'ON CONFLICT' not in sql.upper():
+            if 'episodes' in sql.lower():
+                sql += ' ON CONFLICT (anime_id, episode_number) DO NOTHING'
+            elif 'anime' in sql.lower() and 'anilist_id' in sql.lower():
+                sql += ' ON CONFLICT (anilist_id) DO NOTHING'
+            elif 'genres' in sql.lower() and 'genre_name' in sql.lower():
+                sql += ' ON CONFLICT (genre_name) DO NOTHING'
+            elif 'anime_genres' in sql.lower():
+                sql += ' ON CONFLICT (anime_id, genre_id) DO NOTHING'
+            elif 'subscriptions' in sql.lower():
+                sql += ' ON CONFLICT (subscription_json) DO NOTHING'
+            elif 'ON CONFLICT' not in sql.upper():
                 sql += ' ON CONFLICT DO NOTHING'
 
         # INSERT OR REPLACE -> INSERT ... ON CONFLICT (...) DO UPDATE ...
-        # (This app uses it for streaming_platforms and watchlist mostly)
         if re.search(r'INSERT\s+OR\s+REPLACE\s+INTO', sql, flags=re.IGNORECASE):
             sql = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO', 'INSERT INTO', sql, flags=re.IGNORECASE)
             if 'streaming_platforms' in sql.lower():
@@ -101,21 +109,31 @@ class PostgresCompatCursor:
                 sql += ' ON CONFLICT (user_id, anime_id) DO NOTHING'
             elif 'reminders' in sql.lower():
                 sql += ' ON CONFLICT (user_id, anime_id) DO UPDATE SET last_notified_episode = EXCLUDED.last_notified_episode'
+            elif 'ON CONFLICT' not in sql.upper():
+                # Fallback to DO NOTHING if we don't know the keys
+                sql += ' ON CONFLICT DO NOTHING'
 
-        # COLLATE NOCASE -> (Postgres doesn't need this if using ILIKE, but we can just strip it)
+        # COLLATE NOCASE -> (Postgres doesn't need this, use LOWER() or ILIKE instead)
         sql = re.sub(r'COLLATE\s+NOCASE', '', sql, flags=re.IGNORECASE)
 
         try:
-            self.cursor.execute(sql, params)
-            if 'RETURNING id' not in sql.upper() and ('INSERT' in sql.upper()):
+            # Postgres: if it's an INSERT, we often want the ID back
+            if 'INSERT INTO' in sql.upper() and 'RETURNING' not in sql.upper():
+                # We can't easily add RETURNING to every query without knowing the table structure,
+                # so we stick to the lastval() approach but make it more robust.
+                self.cursor.execute(sql, params)
                 try:
-                    self.cursor.execute("SELECT lastval()")
-                    row = self.cursor.fetchone()
-                    self.lastrowid = row['lastval'] if row else None
+                    self.cursor.execute("SELECT lastval() AS last_id")
+                    res = self.cursor.fetchone()
+                    # In psycopg2, fetchone() returns a dict-like object
+                    if res:
+                        if isinstance(res, dict): self.lastrowid = res.get('last_id')
+                        else: self.lastrowid = res[0]
                 except:
                     pass
+            else:
+                self.cursor.execute(sql, params)
         except Exception as e:
-            # Re-raise with original SQL for debugging
             # print(f"Postgres SQL Error: {e}\nSQL: {sql}")
             raise e
 

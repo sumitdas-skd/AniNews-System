@@ -444,10 +444,10 @@ def get_anime():
         if status_filter.lower() == 'completed':
             where_clauses.append("a.status IN ('Completed', 'Released')")
         else:
-            where_clauses.append("a.status = ? COLLATE NOCASE")
+            where_clauses.append("LOWER(a.status) = LOWER(?)")
             params.append(status_filter)
     elif mode.lower() == 'upcoming':
-        where_clauses.append("a.status = 'Upcoming' COLLATE NOCASE")
+        where_clauses.append("LOWER(a.status) = 'upcoming'")
     elif not is_watchlist:
         where_clauses.append("a.status != 'Cancelled'")
         # Removal of release_date restriction to allow all popular titles (Classics, etc.) to show up.
@@ -1251,6 +1251,30 @@ def add_cache(response):
     return response
 
 
+
+@app.route('/api/debug/db')
+def debug_db():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM anime")
+        count = cursor.fetchone()
+        
+        cursor.execute("SELECT status, COUNT(*) as c FROM anime GROUP BY status")
+        statuses = cursor.fetchall()
+        
+        db_type = "PostgreSQL" if os.environ.get('DATABASE_URL') else "SQLite"
+        
+        conn.close()
+        return jsonify({
+            "db_type": db_type,
+            "total_anime": dict(count)['count'] if count else 0,
+            "statuses": [dict(s) for s in statuses],
+            "env_db_path": os.environ.get('DB_PATH'),
+            "is_prod": is_prod
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
