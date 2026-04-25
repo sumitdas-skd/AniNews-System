@@ -24,6 +24,11 @@ import secrets
 
 def serialize_anime(row):
     d = dict(row)
+    # Convert datetime objects to strings for JSON serialization
+    for key, value in d.items():
+        if hasattr(value, 'isoformat'):
+            d[key] = value.isoformat()
+            
     title_eng = d.get('title_english') or ''
     if title_eng.strip() and title_eng.strip().lower() != 'null':
         d['display_title'] = title_eng.strip()
