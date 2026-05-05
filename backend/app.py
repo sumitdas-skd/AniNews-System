@@ -932,51 +932,65 @@ def login():
 @app.route('/api/auth/forgot-password', methods=['POST'])
 @limiter.limit("3 per hour")
 def forgot_password():
+    import traceback
     data = request.json
     email = data.get('email')
     if not email:
         return jsonify({"status": "error", "message": "Email is required"}), 400
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-    user = cursor.fetchone()
-    
-    if not user:
-        # For security, don't reveal if user exists
-        return jsonify({"status": "success", "message": "Check your email for reset instructions."})
-    
-    token = secrets.token_urlsafe(32)
-    expiry = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
-    
-    cursor.execute("UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?", (token, expiry, user['id']))
-    conn.commit()
-    conn.close()
-    
-    subject = "Password Reset Request - AniNews"
-    reset_url = f"{request.host_url}login?token={token}"
-    body_plain = f"Click the link below to reset your AniNews password. The link will expire in 1 hour.\n\n{reset_url}\n\nIf you did not request this, please ignore this email."
-    body_html = f"""
-    <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:24px;text-align:center;">
-            <h1 style="margin:0;color:#fff;font-size:1.5rem;">🔐 Reset Your Password</h1>
-        </div>
-        <div style="padding:28px;">
-            <p style="font-size:1rem;">We received a request to reset the password for your <strong style="color:#c084fc;">AniNews</strong> account.</p>
-            <p style="font-size:0.95rem;">Click the button below to set a new password. This link will expire in <strong>1 hour</strong>.</p>
-            <div style="text-align:center;margin:28px 0;">
-                <a href="{reset_url}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;font-size:1rem;">Reset My Password</a>
-            </div>
-            <p style="font-size:0.85rem;color:#aaa;">Or copy and paste this link into your browser:</p>
-            <p style="font-size:0.8rem;word-break:break-all;color:#7c3aed;">{reset_url}</p>
-            <p style="margin-top:24px;font-size:0.75rem;color:#555;">If you did not request a password reset, please ignore this email. Your password will not be changed.</p>
-        </div>
-    </div>
-    """
 
-    send_actual_email(email, subject, body_html, body_plain)
-    
-    return jsonify({"status": "success", "message": "Check your email for reset instructions."})
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        user = cursor.fetchone()
+
+        if not user:
+            # For security, don't reveal if user exists
+            return jsonify({"status": "success", "message": "Check your email for reset instructions."})
+
+        token = secrets.token_urlsafe(32)
+        expiry = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
+
+        cursor.execute("UPDATE users SET reset_token = %s, reset_token_expiry = %s WHERE id = %s", (token, expiry, user['id']))
+        conn.commit()
+
+        subject = "Password Reset Request - AniNews"
+        reset_url = f"{request.host_url}login?token={token}"
+        body_plain = f"Click the link below to reset your AniNews password. The link will expire in 1 hour.\n\n{reset_url}\n\nIf you did not request this, please ignore this email."
+        body_html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;overflow:hidden;">
+            <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:24px;text-align:center;">
+                <h1 style="margin:0;color:#fff;font-size:1.5rem;">🔐 Reset Your Password</h1>
+            </div>
+            <div style="padding:28px;">
+                <p style="font-size:1rem;">We received a request to reset the password for your <strong style="color:#c084fc;">AniNews</strong> account.</p>
+                <p style="font-size:0.95rem;">Click the button below to set a new password. This link will expire in <strong>1 hour</strong>.</p>
+                <div style="text-align:center;margin:28px 0;">
+                    <a href="{reset_url}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;font-size:1rem;">Reset My Password</a>
+                </div>
+                <p style="font-size:0.85rem;color:#aaa;">Or copy and paste this link into your browser:</p>
+                <p style="font-size:0.8rem;word-break:break-all;color:#7c3aed;">{reset_url}</p>
+                <p style="margin-top:24px;font-size:0.75rem;color:#555;">If you did not request a password reset, please ignore this email. Your password will not be changed.</p>
+            </div>
+        </div>
+        """
+
+        # Send email in background thread so it doesn't block the response
+        import threading as _t
+        _t.Thread(target=send_actual_email, args=(email, subject, body_html, body_plain), daemon=True).start()
+
+        return jsonify({"status": "success", "message": "Check your email for reset instructions."})
+
+    except Exception as e:
+        print(f"[forgot-password] ERROR: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": f"Server error: {str(e)}"}), 500
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 @app.route('/api/auth/reset-password', methods=['POST'])
 @limiter.limit("3 per hour")
