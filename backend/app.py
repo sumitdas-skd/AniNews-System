@@ -117,27 +117,37 @@ limiter = Limiter(
 )
 
 # Email Configuration (Loaded from Environment Variables)
-# PRIMARY: SendGrid API (HTTPS, no IP restrictions, 100/day free, works on Railway)
-_sg_key = os.environ.get('SENDGRID_API_KEY')
-SENDGRID_API_KEY = _sg_key.strip() if _sg_key else None
-SENDGRID_FROM_EMAIL = os.environ.get('SENDGRID_FROM_EMAIL', 'sumitdas810700@gmail.com')
-SENDGRID_FROM_NAME = os.environ.get('SENDGRID_FROM_NAME', 'AniNews')
+# NOTE: Brevo is PRIMARY — it is verified and confirmed working.
+# SendGrid is SECONDARY — requires a domain-verified sender to avoid 400 errors.
 
-# SECONDARY: Brevo API (has IP restrictions — may fail on Railway)
+# PRIMARY: Brevo API (confirmed working — verified sender)
 _br_key = os.environ.get('BREVO_API_KEY')
 BREVO_API_KEY = _br_key.strip() if _br_key else None
 BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@aninews.app')
 BREVO_FROM_NAME = os.environ.get('BREVO_FROM_NAME', 'AniNews')
 
+# SECONDARY: SendGrid API (requires domain-verified SENDGRID_FROM_EMAIL env var)
+_sg_key = os.environ.get('SENDGRID_API_KEY')
+SENDGRID_API_KEY = _sg_key.strip() if _sg_key else None
+# IMPORTANT: Set SENDGRID_FROM_EMAIL in Railway to a domain-verified sender.
+# Gmail addresses are NOT accepted by SendGrid unless your domain is verified.
+SENDGRID_FROM_EMAIL = os.environ.get('SENDGRID_FROM_EMAIL', 'noreply@aninews.app')
+SENDGRID_FROM_NAME = os.environ.get('SENDGRID_FROM_NAME', 'AniNews')
+
 # TERTIARY: Resend API (requires domain verification for arbitrary recipients)
 _rs_key = os.environ.get('RESEND_API_KEY')
 RESEND_API_KEY = _rs_key.strip() if _rs_key else None
 RESEND_FROM = os.environ.get('RESEND_FROM', 'AniNews <onboarding@resend.dev>')
+
 # FALLBACK: SMTP (blocked on Railway free tier)
 SMTP_SERVER = os.environ.get('SMTP_SERVER', "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
 SMTP_USER = os.environ.get('SMTP_USER')
 SMTP_PASS = os.environ.get('SMTP_PASS')
+
+# Frontend URL for building correct reset links (set FRONTEND_URL in Railway env vars)
+# e.g. https://your-app.vercel.app  — no trailing slash
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://aninews.up.railway.app').rstrip('/')
 
 
 from functools import wraps
@@ -161,32 +171,7 @@ def admin_required(f):
 def send_actual_email(to_email, subject, body_html, body_plain=None):
     import requests as _req
 
-    # METHOD 1: SendGrid API (HTTPS, no IP restrictions, 100/day free — best for Railway)
-    if SENDGRID_API_KEY:
-        try:
-            payload = {
-                "personalizations": [{"to": [{"email": to_email}]}],
-                "from": {"email": SENDGRID_FROM_EMAIL, "name": SENDGRID_FROM_NAME},
-                "subject": subject,
-                "content": [{"type": "text/html", "value": body_html}],
-            }
-            if body_plain:
-                payload["content"].insert(0, {"type": "text/plain", "value": body_plain})
-            resp = _req.post(
-                "https://api.sendgrid.com/v3/mail/send",
-                headers={"Authorization": f"Bearer {SENDGRID_API_KEY}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=10,
-            )
-            if resp.status_code == 202:
-                print(f"[Email] Sent via SendGrid to {to_email}")
-                return True
-            else:
-                print(f"[Email] SendGrid error {resp.status_code}: {resp.text}")
-        except Exception as e:
-            print(f"[Email] SendGrid exception: {e}")
-
-    # METHOD 2: Brevo API (may fail on Railway due to IP restrictions)
+    # METHOD 1: Brevo API (PRIMARY — verified sender, confirmed working)
     if BREVO_API_KEY:
         try:
             payload = {
@@ -211,7 +196,32 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
         except Exception as e:
             print(f"[Email] Brevo exception: {e}")
 
-    # METHOD 2: Resend API (requires domain verification for arbitrary recipients)
+    # METHOD 2: SendGrid API (SECONDARY — requires domain-verified SENDGRID_FROM_EMAIL)
+    if SENDGRID_API_KEY:
+        try:
+            payload = {
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": SENDGRID_FROM_EMAIL, "name": SENDGRID_FROM_NAME},
+                "subject": subject,
+                "content": [{"type": "text/html", "value": body_html}],
+            }
+            if body_plain:
+                payload["content"].insert(0, {"type": "text/plain", "value": body_plain})
+            resp = _req.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                headers={"Authorization": f"Bearer {SENDGRID_API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code == 202:
+                print(f"[Email] Sent via SendGrid to {to_email}")
+                return True
+            else:
+                print(f"[Email] SendGrid error {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"[Email] SendGrid exception: {e}")
+
+    # METHOD 3: Resend API (requires domain verification for arbitrary recipients)
     if RESEND_API_KEY:
         try:
             payload = {
@@ -236,7 +246,7 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
         except Exception as e:
             print(f"[Email] Resend exception: {e}")
 
-    # METHOD 3: SMTP fallback (for local dev — may be blocked on Railway)
+    # METHOD 4: SMTP fallback (for local dev — may be blocked on Railway)
     if SMTP_USER and SMTP_USER != "your-email@gmail.com" and SMTP_PASS:
         try:
             msg = MIMEMultipart('alternative')
@@ -260,7 +270,7 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
             print(f"ERROR: Failed to send email via SMTP to {to_email}: {e}")
             return False
 
-    # METHOD 4: Simulation (no credentials configured)
+    # METHOD 5: Simulation (no credentials configured)
     print(f"SIMULATION: [EMAIL LOG] To: {to_email} | Subject: {subject}")
     return True
 
@@ -1084,7 +1094,9 @@ def forgot_password():
         conn.commit()
 
         subject = "Password Reset Request - AniNews"
-        reset_url = f"{request.host_url}login?token={token}"
+        # Use FRONTEND_URL env var so the link points to the correct frontend
+        # (not the Railway backend URL). Set FRONTEND_URL in Railway env vars.
+        reset_url = f"{FRONTEND_URL}/login?token={token}"
         body_plain = f"Click the link below to reset your AniNews password. The link will expire in 1 hour.\n\n{reset_url}\n\nIf you did not request this, please ignore this email."
         body_html = f"""
         <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;overflow:hidden;">
@@ -1104,10 +1116,14 @@ def forgot_password():
         </div>
         """
 
-        # Send email in background thread so it doesn't block the response
-        import threading as _t
-        _t.Thread(target=send_actual_email, args=(email, subject, body_html, body_plain), daemon=True).start()
+        # Send email synchronously (not in background) so we can catch any errors immediately
+        email_sent = send_actual_email(email, subject, body_html, body_plain)
+        if email_sent:
+            print(f"[forgot-password] Reset email successfully sent to {email}")
+        else:
+            print(f"[forgot-password] WARNING: Failed to send reset email to {email}")
 
+        # Always return success so the user knows to check their inbox
         return jsonify({"status": "success", "message": "Check your email for reset instructions."})
 
     except Exception as e:
