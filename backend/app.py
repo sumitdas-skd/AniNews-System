@@ -895,6 +895,39 @@ def debug_status():
         import traceback
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
+@app.route('/api/debug/test-email', methods=['GET'])
+def test_email():
+    """Debug endpoint to test email delivery and see exactly what is failing."""
+    test_address = request.args.get('email')
+    if not test_address:
+        return jsonify({"status": "error", "message": "Please provide an email address, e.g. /api/debug/test-email?email=you@example.com"}), 400
+        
+    import io
+    import sys
+    
+    # Capture print statements to return them to the frontend
+    old_stdout = sys.stdout
+    new_stdout = io.StringIO()
+    sys.stdout = new_stdout
+    
+    try:
+        success = send_actual_email(
+            test_address, 
+            "AniNews Diagnostic Test", 
+            "<h1>Test Successful</h1><p>If you are reading this, your email configuration is working.</p>",
+            "Test Successful. If you are reading this, your email configuration is working."
+        )
+    finally:
+        sys.stdout = old_stdout
+        
+    logs = new_stdout.getvalue()
+    
+    return jsonify({
+        "status": "success" if success else "error",
+        "delivered": success,
+        "logs": logs.strip().split('\n')
+    })
+
 @app.route('/api/admin/force-sync', methods=['POST', 'GET'])
 def force_sync():
     """Trigger a full AniList fetch. POST requires admin session; GET requires ?key=SYNC_SECRET env var."""
