@@ -118,15 +118,20 @@ limiter = Limiter(
 
 # Email Configuration (Loaded from Environment Variables)
 # PRIMARY: SendGrid API (HTTPS, no IP restrictions, 100/day free, works on Railway)
-SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY')
+_sg_key = os.environ.get('SENDGRID_API_KEY')
+SENDGRID_API_KEY = _sg_key.strip() if _sg_key else None
 SENDGRID_FROM_EMAIL = os.environ.get('SENDGRID_FROM_EMAIL', 'sumitdas810700@gmail.com')
 SENDGRID_FROM_NAME = os.environ.get('SENDGRID_FROM_NAME', 'AniNews')
+
 # SECONDARY: Brevo API (has IP restrictions — may fail on Railway)
-BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
+_br_key = os.environ.get('BREVO_API_KEY')
+BREVO_API_KEY = _br_key.strip() if _br_key else None
 BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@aninews.app')
 BREVO_FROM_NAME = os.environ.get('BREVO_FROM_NAME', 'AniNews')
+
 # TERTIARY: Resend API (requires domain verification for arbitrary recipients)
-RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
+_rs_key = os.environ.get('RESEND_API_KEY')
+RESEND_API_KEY = _rs_key.strip() if _rs_key else None
 RESEND_FROM = os.environ.get('RESEND_FROM', 'AniNews <onboarding@resend.dev>')
 # FALLBACK: SMTP (blocked on Railway free tier)
 SMTP_SERVER = os.environ.get('SMTP_SERVER', "smtp.gmail.com")
