@@ -256,8 +256,7 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
             if body_plain:
                 msg.attach(MIMEText(body_plain, 'plain'))
             msg.attach(MIMEText(body_html, 'html'))
-            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10)
-            server.starttls()
+            server = smtplib.SMTP_SSL(SMTP_SERVER, 465, timeout=10)
             server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
             server.quit()
