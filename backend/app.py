@@ -1074,8 +1074,8 @@ def forgot_password():
         user = cursor.fetchone()
 
         if not user:
-            # For security, don't reveal if user exists
-            return jsonify({"status": "success", "message": "Check your email for reset instructions."})
+            # TEMPORARILY REVEALING IF USER EXISTS TO HELP DEBUGGING
+            return jsonify({"status": "error", "message": f"The email '{email}' is NOT registered in the database! Please sign up first."})
 
         token = secrets.token_urlsafe(32)
         expiry = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
