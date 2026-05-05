@@ -162,12 +162,9 @@
     if (resetToken) {
         showCard('resetCard');
     } else {
-        // FIX: Read CONFIG at call-time so the interceptor/base URL is always applied
-        const _apiBase = (window.CONFIG && window.CONFIG.API_BASE_URL) ? window.CONFIG.API_BASE_URL : '';
-        fetch(`${_apiBase}/api/auth/me`, { credentials: 'include' })
-            .then(r => r.json())
-            .then(d => { if (d.status === 'success') window.location.replace('/'); })
-            .catch(() => {});
+        fetch('/api/auth/me').then(r => r.json()).then(d => {
+            if (d.status === 'success') window.location.replace('/');
+        });
         showCard('loginCard');
     }
 
