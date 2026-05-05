@@ -59,7 +59,12 @@ app.secret_key = os.environ.get('SECRET_KEY', _get_persistent_secret())
 
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=365)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# FIX: In production (Vercel frontend + Railway backend = cross-domain),
+# cookies MUST be SameSite=None + Secure or the browser will block them.
+# This was causing the login redirect loop on Vercel.
+_is_prod_env = os.environ.get('ENVIRONMENT') == 'production'
+app.config['SESSION_COOKIE_SAMESITE'] = 'None' if _is_prod_env else 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = _is_prod_env
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 3600  # Cache static files for 1 hour
 
 # --- Last-seen throttle (write at most once per 60s per user) ---
@@ -89,22 +94,25 @@ def update_last_seen():
             conn.close()
         except Exception as e:
             print(f"Non-critical Error: Could not update last_seen: {e}")
-# FEATURE: Split Deployment Support (Render Backend + Vercel Frontend)
+# FEATURE: Split Deployment Support (Vercel Frontend + Railway/Render Backend)
 # Using regex to allow all Vercel subdomains and local development ports
 import re
 CORS(app, supports_credentials=True, origins=[
-    re.compile(r"https://.*\.vercel\.app$"),
+    re.compile(r"https://.*\.vercel\.app$"),   # All Vercel deployments
+    re.compile(r"https://.*\.railway\.app$"),   # All Railway deployments
     re.compile(r"http://localhost:\d+$"),
     re.compile(r"http://127\.0\.0\.1:\d+$"),
-    "https://aninews-system.onrender.com" # Allow itself
+    "https://aninews-system.onrender.com",
+    "https://aninews.up.railway.app",           # Explicit Railway URL
 ])
 
 # Optimization & Security
 Compress(app)
 # Force HTTPS for public deployment, but allow local testing
-is_prod = os.environ.get('ENVIRONMENT') == 'production'
-Talisman(app, 
-    content_security_policy=None, 
+# Re-use the same _is_prod_env flag set above for cookie config
+is_prod = _is_prod_env
+Talisman(app,
+    content_security_policy=None,
     force_https=is_prod,
     session_cookie_secure=is_prod,
     session_cookie_samesite='None' if is_prod else 'Lax'
