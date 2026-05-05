@@ -117,7 +117,11 @@ limiter = Limiter(
 )
 
 # Email Configuration (Loaded from Environment Variables)
-# PRIMARY: Resend API (works on Railway — uses HTTPS, not blocked SMTP port)
+# PRIMARY: Brevo API (works on Railway, no domain verification, send to any email — 300/day free)
+BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
+BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@aninews.app')
+BREVO_FROM_NAME = os.environ.get('BREVO_FROM_NAME', 'AniNews')
+# SECONDARY: Resend API (requires domain verification for sending to others)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 RESEND_FROM = os.environ.get('RESEND_FROM', 'AniNews <onboarding@resend.dev>')
 # FALLBACK: SMTP (may be blocked on Railway free tier)
@@ -148,7 +152,32 @@ def admin_required(f):
 def send_actual_email(to_email, subject, body_html, body_plain=None):
     import requests as _req
 
-    # METHOD 1: Resend API (HTTPS — works on Railway, no port blocking)
+    # METHOD 1: Brevo API (HTTPS, no domain needed, send to any email — 300/day free)
+    if BREVO_API_KEY:
+        try:
+            payload = {
+                "sender": {"name": BREVO_FROM_NAME, "email": BREVO_FROM_EMAIL},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "htmlContent": body_html,
+            }
+            if body_plain:
+                payload["textContent"] = body_plain
+            resp = _req.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": BREVO_API_KEY, "Content-Type": "application/json"},
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                print(f"[Email] Sent via Brevo to {to_email}")
+                return True
+            else:
+                print(f"[Email] Brevo error {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"[Email] Brevo exception: {e}")
+
+    # METHOD 2: Resend API (requires domain verification for arbitrary recipients)
     if RESEND_API_KEY:
         try:
             payload = {
@@ -173,7 +202,7 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
         except Exception as e:
             print(f"[Email] Resend exception: {e}")
 
-    # METHOD 2: SMTP fallback (for local dev — may be blocked on Railway)
+    # METHOD 3: SMTP fallback (for local dev — may be blocked on Railway)
     if SMTP_USER and SMTP_USER != "your-email@gmail.com" and SMTP_PASS:
         try:
             msg = MIMEMultipart('alternative')
@@ -197,7 +226,7 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
             print(f"ERROR: Failed to send email via SMTP to {to_email}: {e}")
             return False
 
-    # METHOD 3: Simulation (no credentials configured)
+    # METHOD 4: Simulation (no credentials configured)
     print(f"SIMULATION: [EMAIL LOG] To: {to_email} | Subject: {subject}")
     return True
 
