@@ -1025,7 +1025,7 @@ def login():
     return jsonify({"status": "error", "message": "Invalid email or password"}), 401
 
 @app.route('/api/auth/forgot-password', methods=['POST'])
-@limiter.limit("3 per hour")
+@limiter.limit("20 per hour")
 def forgot_password():
     import traceback
     data = request.json
