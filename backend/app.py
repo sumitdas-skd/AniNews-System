@@ -942,7 +942,7 @@ def forgot_password():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
         user = cursor.fetchone()
 
         if not user:
@@ -952,7 +952,7 @@ def forgot_password():
         token = secrets.token_urlsafe(32)
         expiry = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
 
-        cursor.execute("UPDATE users SET reset_token = %s, reset_token_expiry = %s WHERE id = %s", (token, expiry, user['id']))
+        cursor.execute("UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?", (token, expiry, user['id']))
         conn.commit()
 
         subject = "Password Reset Request - AniNews"
