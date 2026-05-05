@@ -117,14 +117,18 @@ limiter = Limiter(
 )
 
 # Email Configuration (Loaded from Environment Variables)
-# PRIMARY: Brevo API (works on Railway, no domain verification, send to any email — 300/day free)
+# PRIMARY: SendGrid API (HTTPS, no IP restrictions, 100/day free, works on Railway)
+SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY')
+SENDGRID_FROM_EMAIL = os.environ.get('SENDGRID_FROM_EMAIL', 'sumitdas810700@gmail.com')
+SENDGRID_FROM_NAME = os.environ.get('SENDGRID_FROM_NAME', 'AniNews')
+# SECONDARY: Brevo API (has IP restrictions — may fail on Railway)
 BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
 BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@aninews.app')
 BREVO_FROM_NAME = os.environ.get('BREVO_FROM_NAME', 'AniNews')
-# SECONDARY: Resend API (requires domain verification for sending to others)
+# TERTIARY: Resend API (requires domain verification for arbitrary recipients)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 RESEND_FROM = os.environ.get('RESEND_FROM', 'AniNews <onboarding@resend.dev>')
-# FALLBACK: SMTP (may be blocked on Railway free tier)
+# FALLBACK: SMTP (blocked on Railway free tier)
 SMTP_SERVER = os.environ.get('SMTP_SERVER', "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
 SMTP_USER = os.environ.get('SMTP_USER')
@@ -152,7 +156,32 @@ def admin_required(f):
 def send_actual_email(to_email, subject, body_html, body_plain=None):
     import requests as _req
 
-    # METHOD 1: Brevo API (HTTPS, no domain needed, send to any email — 300/day free)
+    # METHOD 1: SendGrid API (HTTPS, no IP restrictions, 100/day free — best for Railway)
+    if SENDGRID_API_KEY:
+        try:
+            payload = {
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": SENDGRID_FROM_EMAIL, "name": SENDGRID_FROM_NAME},
+                "subject": subject,
+                "content": [{"type": "text/html", "value": body_html}],
+            }
+            if body_plain:
+                payload["content"].insert(0, {"type": "text/plain", "value": body_plain})
+            resp = _req.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                headers={"Authorization": f"Bearer {SENDGRID_API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code == 202:
+                print(f"[Email] Sent via SendGrid to {to_email}")
+                return True
+            else:
+                print(f"[Email] SendGrid error {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"[Email] SendGrid exception: {e}")
+
+    # METHOD 2: Brevo API (may fail on Railway due to IP restrictions)
     if BREVO_API_KEY:
         try:
             payload = {
