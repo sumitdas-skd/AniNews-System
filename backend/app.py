@@ -116,11 +116,16 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-# Email/SMTP Configuration (Loaded from Environment Variables)
+# Email Configuration (Loaded from Environment Variables)
+# PRIMARY: Resend API (works on Railway — uses HTTPS, not blocked SMTP port)
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
+RESEND_FROM = os.environ.get('RESEND_FROM', 'AniNews <onboarding@resend.dev>')
+# FALLBACK: SMTP (may be blocked on Railway free tier)
 SMTP_SERVER = os.environ.get('SMTP_SERVER', "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
-SMTP_USER = os.environ.get('SMTP_USER') 
-SMTP_PASS = os.environ.get('SMTP_PASS') 
+SMTP_USER = os.environ.get('SMTP_USER')
+SMTP_PASS = os.environ.get('SMTP_PASS')
+
 
 from functools import wraps
 def admin_required(f):
@@ -141,34 +146,61 @@ def admin_required(f):
     return decorated_function
 
 def send_actual_email(to_email, subject, body_html, body_plain=None):
-    # FEATURE: Improved reliability with better logging and debug checks
-    if not SMTP_USER or SMTP_USER == "your-email@gmail.com":
-        print(f"SIMULATION: [EMAIL LOG] To: {to_email} | Subject: {subject}")
-        return True
-        
-    try:
-        msg = MIMEMultipart('alternative')
-        msg['From'] = f"AniNews <{SMTP_USER}>"
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        # Attach plain-text fallback first, then HTML (email clients prefer the last part)
-        if body_plain:
-            msg.attach(MIMEText(body_plain, 'plain'))
-        msg.attach(MIMEText(body_html, 'html'))
-        
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.set_debuglevel(0) # Set to 1 for verbose SMTP logs
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
-        server.quit()
-        return True
-    except smtplib.SMTPAuthenticationError:
-        print(f"CRITICAL: SMTP Authentication failed for {SMTP_USER}. Check credentials.")
-        return False
-    except Exception as e:
-        print(f"ERROR: Failed to send email to {to_email}: {e}")
-        return False
+    import requests as _req
+
+    # METHOD 1: Resend API (HTTPS — works on Railway, no port blocking)
+    if RESEND_API_KEY:
+        try:
+            payload = {
+                "from": RESEND_FROM,
+                "to": [to_email],
+                "subject": subject,
+                "html": body_html,
+            }
+            if body_plain:
+                payload["text"] = body_plain
+            resp = _req.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                print(f"[Email] Sent via Resend to {to_email}")
+                return True
+            else:
+                print(f"[Email] Resend error {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"[Email] Resend exception: {e}")
+
+    # METHOD 2: SMTP fallback (for local dev — may be blocked on Railway)
+    if SMTP_USER and SMTP_USER != "your-email@gmail.com" and SMTP_PASS:
+        try:
+            msg = MIMEMultipart('alternative')
+            msg['From'] = f"AniNews <{SMTP_USER}>"
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            if body_plain:
+                msg.attach(MIMEText(body_plain, 'plain'))
+            msg.attach(MIMEText(body_html, 'html'))
+            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10)
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+            server.quit()
+            print(f"[Email] Sent via SMTP to {to_email}")
+            return True
+        except smtplib.SMTPAuthenticationError:
+            print(f"CRITICAL: SMTP Authentication failed for {SMTP_USER}. Check credentials.")
+            return False
+        except Exception as e:
+            print(f"ERROR: Failed to send email via SMTP to {to_email}: {e}")
+            return False
+
+    # METHOD 3: Simulation (no credentials configured)
+    print(f"SIMULATION: [EMAIL LOG] To: {to_email} | Subject: {subject}")
+    return True
+
 
 # VAPID setup
 VAPID_PRIVATE_KEY_PATH = os.path.join(os.path.dirname(__file__), 'private_key.pem')
