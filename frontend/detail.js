@@ -400,22 +400,24 @@ function closeReminderModal() {
 }
 
 async function reminderOptionA() {
-    if (localStorage.getItem('calendar_enabled') === 'true') {
-        const protocol = window.location.protocol === 'https:' ? 'webcals:' : 'webcal:';
-        const calendarUrl = `${protocol}//${window.location.host}/api/calendar/${currentAnime.id}.ics`;
-
-        // This browser-level protocol redirect opens the native System Calendar 
-        // directly (Safari, Chrome, etc. all support this for direct marking).
-        window.location.href = calendarUrl;
-    } else {
-        const title = getTitle(currentAnime);
-        const date = currentAnime.next_episode_date || currentAnime.release_date;
-        const start = new Date(date);
-        const end = new Date(start.getTime() + 30 * 60 * 1000);
-        const formatDate = (d) => d.toISOString().replace(/-|:|\.\d+/g, "");
-        const googleUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${formatDate(start)}/${formatDate(end)}`;
-        window.open(googleUrl, '_blank');
+    if (!currentAnime) return;
+    const title = getTitle(currentAnime);
+    const date = currentAnime.next_episode_date || currentAnime.release_date;
+    if (!date || date === 'TBA' || date === 'null') {
+        alert('No release date available yet for this anime.');
+        closeReminderModal();
+        return;
     }
+    const start = new Date(date);
+    if (isNaN(start.getTime())) {
+        alert('Release date format is not supported.');
+        closeReminderModal();
+        return;
+    }
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const formatGCal = (d) => d.toISOString().replace(/[-:]|(\.\d+)/g, '').slice(0, 15) + 'Z';
+    const googleUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('AniNews: ' + title)}&dates=${formatGCal(start)}/${formatGCal(end)}&details=${encodeURIComponent('Watch on AniNews: https://aninews.up.railway.app/detail.html?id=' + currentAnime.id)}`;
+    window.open(googleUrl, '_blank');
     closeReminderModal();
 }
 
@@ -427,9 +429,13 @@ async function reminderOptionB() {
             body: JSON.stringify({ anime_id: currentAnime.id })
         });
         const data = await response.json();
-        alert(data.status === 'success' ? `Success! A reminder will be sent to your registered email.` : data.message);
+        if (data.status === 'success') {
+            alert(`✅ ${data.message}`);
+        } else {
+            alert(`❌ ${data.message || 'Could not set reminder. Please try again.'}`);
+        }
     } catch (e) {
-        alert("Error connecting to server. Please ensure you are logged in.");
+        alert("❌ Error connecting to server. Please ensure you are logged in.");
     }
     closeReminderModal();
 }

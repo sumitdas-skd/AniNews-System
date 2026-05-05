@@ -140,18 +140,21 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def send_actual_email(to_email, subject, body):
+def send_actual_email(to_email, subject, body_html, body_plain=None):
     # FEATURE: Improved reliability with better logging and debug checks
     if not SMTP_USER or SMTP_USER == "your-email@gmail.com":
         print(f"SIMULATION: [EMAIL LOG] To: {to_email} | Subject: {subject}")
         return True
         
     try:
-        msg = MIMEMultipart()
-        msg['From'] = SMTP_USER
+        msg = MIMEMultipart('alternative')
+        msg['From'] = f"AniNews <{SMTP_USER}>"
         msg['To'] = to_email
         msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
+        # Attach plain-text fallback first, then HTML (email clients prefer the last part)
+        if body_plain:
+            msg.attach(MIMEText(body_plain, 'plain'))
+        msg.attach(MIMEText(body_html, 'html'))
         
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.set_debuglevel(0) # Set to 1 for verbose SMTP logs
@@ -292,9 +295,16 @@ def check_and_send_reminders():
             # If the current episode in the DB is greater than what we last notified
             if current_ep > last_notified:
                 subject = f"📺 New Episode Alert: {rem['title']} Ep {current_ep} is Out!"
-                body = f"Good news! Episode {current_ep} of '{rem['title']}' is now available. Watch it now on AniNews!"
-                
-                if send_actual_email(rem['email'], subject, body):
+                body_plain = f"Good news! Episode {current_ep} of '{rem['title']}' is now available. Watch it now on AniNews!"
+                body_html = f"""
+                <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;padding:24px;">
+                    <h2 style="color:#c084fc;">📺 New Episode Alert!</h2>
+                    <p>Episode <strong style="color:#fff">{current_ep}</strong> of <strong style="color:#fff">{rem['title']}</strong> is now available!</p>
+                    <a href="https://aninews.up.railway.app" style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Watch Now on AniNews</a>
+                    <p style="margin-top:20px;font-size:0.8rem;color:#666;">You received this because you set a reminder on AniNews.</p>
+                </div>
+                """
+                if send_actual_email(rem['email'], subject, body_html, body_plain):
                     # Update the last_notified_episode to current
                     cursor.execute("UPDATE reminders SET last_notified_episode = ? WHERE id = ?", (current_ep, rem['reminder_row_id']))
                     print(f"Episode notification sent to {rem['email']} for {rem['title']} Ep {current_ep}")
@@ -319,8 +329,16 @@ def check_and_send_reminders():
                     target_ep = current_ep + 1
                     if last_notified < target_ep:
                          subject = f"⏱️ 1 Hour Left: {rem['title']} Episode {target_ep} Airing Soon!"
-                         body = f"Get ready! Episode {target_ep} of '{rem['title']}' airs in about an hour. Stay tuned!"
-                         send_actual_email(rem['email'], subject, body)
+                         body_plain = f"Get ready! Episode {target_ep} of '{rem['title']}' airs in about an hour. Stay tuned!"
+                         body_html = f"""
+                         <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;padding:24px;">
+                             <h2 style="color:#f59e0b;">⏱️ Airing in 1 Hour!</h2>
+                             <p>Episode <strong style="color:#fff">{target_ep}</strong> of <strong style="color:#fff">{rem['title']}</strong> airs in about an hour. Get ready!</p>
+                             <a href="https://aninews.up.railway.app" style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Go to AniNews</a>
+                             <p style="margin-top:20px;font-size:0.8rem;color:#666;">You received this because you set a reminder on AniNews.</p>
+                         </div>
+                         """
+                         send_actual_email(rem['email'], subject, body_html, body_plain)
                 
         except Exception as e:
             print(f"Error processing reminder for {rem['title']}: {e}")
@@ -1002,19 +1020,59 @@ def add_gmail_reminder():
         # Check for duplicate
         cursor.execute("SELECT id FROM reminders WHERE user_id = ? AND anime_id = ?", (user_id, anime_id))
         if cursor.fetchone():
-            return jsonify({"status": "success", "message": "Reminder already scheduled"})
+            return jsonify({"status": "success", "message": "Reminder already set! You will be notified when a new episode airs."})
 
         cursor.execute("INSERT INTO reminders (user_id, anime_id) VALUES (?, ?)", (user_id, anime_id))
         conn.commit()
         
-        cursor.execute("SELECT * FROM anime WHERE id = ?", (anime_id,))
+        # Fetch anime and user details to send confirmation email
+        cursor.execute("SELECT title, next_episode_date, release_date, episodes_current FROM anime WHERE id = ?", (anime_id,))
         anime = cursor.fetchone()
+        cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
         
-        # In a real app, this would be scheduled. For now, we simulate success.
-        # subject = f"AniNews Reminder: {anime['title']} Release Day"
-        # body = f"Your reminder for {anime['title']} is scheduled."
+        if anime and user:
+            title = anime['title']
+            date_str = anime['next_episode_date'] or anime['release_date']
+            ep_num = (anime['episodes_current'] or 0) + 1
+            
+            date_display = 'TBA'
+            if date_str and date_str not in ('TBA', 'null'):
+                try:
+                    import datetime as _dt
+                    d = _dt.datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                    date_display = d.strftime('%A, %d %B %Y at %I:%M %p UTC')
+                except Exception:
+                    date_display = date_str
+            
+            subject = f"🔔 Reminder Set: {title} on AniNews"
+            body_plain = f"Your email reminder for '{title}' has been set! We'll notify you when Episode {ep_num} airs (expected: {date_display})."
+            body_html = f"""
+            <div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;overflow:hidden;">
+                <div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:24px;text-align:center;">
+                    <h1 style="margin:0;color:#fff;font-size:1.5rem;">🔔 Reminder Confirmed!</h1>
+                </div>
+                <div style="padding:28px;">
+                    <p style="font-size:1rem;">Your reminder for <strong style="color:#c084fc;">{title}</strong> has been set!</p>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:16px;margin:16px 0;border-left:3px solid #7c3aed;">
+                        <p style="margin:0 0 8px 0;">📺 <strong>Next Episode:</strong> Episode {ep_num}</p>
+                        <p style="margin:0;">📅 <strong>Expected:</strong> {date_display}</p>
+                    </div>
+                    <p style="color:#aaa;font-size:0.9rem;">We'll send you an email alert 1 hour before the episode airs and again when it's released.</p>
+                    <a href="https://aninews.up.railway.app" style="display:inline-block;margin-top:16px;padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Visit AniNews</a>
+                    <p style="margin-top:24px;font-size:0.75rem;color:#555;">You received this because you set a reminder on AniNews. To cancel, visit the site and remove your reminder.</p>
+                </div>
+            </div>
+            """
+            # Fire confirmation email in a background thread to avoid blocking the response
+            import threading as _threading
+            _threading.Thread(
+                target=send_actual_email,
+                args=(user['email'], subject, body_html, body_plain),
+                daemon=True
+            ).start()
         
-        return jsonify({"status": "success", "message": "Gmail reminder scheduled successfully"})
+        return jsonify({"status": "success", "message": "Reminder set! A confirmation email has been sent to your registered address."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
