@@ -9,9 +9,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="login.css">
-    <!-- Load config + interceptor FIRST so all fetch() calls get credentials:include -->
-    <script src="config.js"></script>
-    <script src="api-interceptor.js"></script>
 </head>
 <body>
 
@@ -165,7 +162,7 @@
     if (resetToken) {
         showCard('resetCard');
     } else {
-        fetch('/api/auth/me', { credentials: 'include' }).then(r => r.json()).then(d => {
+        fetch('/api/auth/me').then(r => r.json()).then(d => {
             if (d.status === 'success') window.location.replace('/');
         });
         showCard('loginCard');
@@ -220,7 +217,6 @@
         try {
             const res  = await fetch('/api/auth/login', {
                 method: 'POST',
-                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
             });
@@ -263,7 +259,6 @@
         try {
             const res  = await fetch('/api/auth/register', {
                 method: 'POST',
-                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
             });
@@ -298,7 +293,6 @@
         try {
             const res  = await fetch('/api/auth/forgot-password', {
                 method: 'POST',
-                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email })
             });
@@ -326,7 +320,6 @@
         try {
             const res  = await fetch('/api/auth/reset-password', {
                 method: 'POST',
-                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token: resetToken, password })
             });
@@ -362,5 +355,7 @@
         if (input.value.length > 0) input.classList.add('has-value');
     });
 </script>
+<script src="config.js"></script>
+<script src="api-interceptor.js"></script>
 </body>
 </html>

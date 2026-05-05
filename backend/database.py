@@ -127,11 +127,12 @@ class PostgresCompatCursor:
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
+    id_pk = 'SERIAL PRIMARY KEY' if DATABASE_URL else 'INTEGER PRIMARY KEY AUTOINCREMENT'
     
-    # Core tables with SERIAL primary keys for Postgres compatibility
-    cursor.execute('''
+    # Use the native auto-incrementing primary key syntax for each database.
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS anime (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             anilist_id INTEGER UNIQUE,
             title TEXT NOT NULL,
             title_english TEXT,
@@ -172,9 +173,9 @@ def init_db():
             cursor.execute(f"ALTER TABLE anime ADD COLUMN {col_name} {col_type}")
         except: pass
 
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS episodes (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             anime_id INTEGER,
             episode_number INTEGER,
             episode_name TEXT,
@@ -183,9 +184,9 @@ def init_db():
         )
     ''')
 
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS genres (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             genre_name TEXT UNIQUE NOT NULL
         )
     ''')
@@ -198,9 +199,9 @@ def init_db():
         )
     ''')
     
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             email TEXT UNIQUE NOT NULL,
             username TEXT,
             password TEXT NOT NULL,
@@ -212,9 +213,9 @@ def init_db():
         )
     ''')
 
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS watchlist (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             user_id INTEGER,
             anime_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -222,9 +223,9 @@ def init_db():
         )
     ''')
 
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS streaming_platforms (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             anime_id INTEGER,
             platform_name TEXT,
             url TEXT,
@@ -232,9 +233,9 @@ def init_db():
         )
     ''')
 
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS reminders (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             user_id INTEGER,
             anime_id INTEGER,
             last_notified_episode INTEGER DEFAULT 0,
@@ -243,17 +244,17 @@ def init_db():
         )
     ''')
 
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS subscriptions (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             subscription_json TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS reviews (
-            id SERIAL PRIMARY KEY,
+            id {id_pk},
             user_id INTEGER,
             anime_id INTEGER,
             rating REAL,
