@@ -57,9 +57,20 @@ def _get_persistent_secret():
 
 app.secret_key = os.environ.get('SECRET_KEY', _get_persistent_secret())
 
+# Detect if we're running on a hosted platform (Railway, Render, etc.)
+# Railway sets RAILWAY_ENVIRONMENT; Render sets RENDER=true; we also check PORT as a fallback.
+_is_hosted = bool(
+    os.environ.get('RAILWAY_ENVIRONMENT') or
+    os.environ.get('RENDER') or
+    os.environ.get('ENVIRONMENT') == 'production'
+)
+
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=365)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# CRITICAL for Vercel→Railway cross-origin: cookies MUST be SameSite=None; Secure
+# SameSite=Lax will be silently blocked by the browser on cross-origin requests.
+app.config['SESSION_COOKIE_SAMESITE'] = 'None' if _is_hosted else 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = _is_hosted  # Secure=True required when SameSite=None
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 3600  # Cache static files for 1 hour
 
 # --- Last-seen throttle (write at most once per 60s per user) ---
@@ -96,19 +107,20 @@ CORS(app, supports_credentials=True, origins=[
     re.compile(r"https://.*\.vercel\.app$"),
     re.compile(r"http://localhost:\d+$"),
     re.compile(r"http://127\.0\.0\.1:\d+$"),
-    "https://aninews-system.onrender.com" # Allow itself
+    "https://aninews-system.onrender.com",
+    "https://aninews.up.railway.app",  # Railway backend serving itself
 ])
 
 # Optimization & Security
 Compress(app)
-# Force HTTPS for public deployment, but allow local testing
-is_prod = os.environ.get('ENVIRONMENT') == 'production'
-Talisman(app, 
-    content_security_policy=None, 
-    force_https=is_prod,
-    session_cookie_secure=is_prod,
-    session_cookie_samesite='None' if is_prod else 'Lax'
-) 
+# Use _is_hosted (auto-detected above) instead of checking ENVIRONMENT manually.
+# This ensures HTTPS + correct cookie flags on Railway without needing extra env vars.
+Talisman(app,
+    content_security_policy=None,
+    force_https=_is_hosted,
+    session_cookie_secure=_is_hosted,
+    session_cookie_samesite='None' if _is_hosted else 'Lax'
+)
 limiter = Limiter(
     get_remote_address,
     app=app,
