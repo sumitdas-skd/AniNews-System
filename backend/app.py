@@ -117,28 +117,27 @@ limiter = Limiter(
 )
 
 # Email Configuration (Loaded from Environment Variables)
-# NOTE: Resend is PRIMARY.
-# Brevo is SECONDARY.
-# SendGrid is TERTIARY.
+# NOTE: Brevo is PRIMARY — it is verified and confirmed working.
+# SendGrid is SECONDARY — requires a domain-verified sender to avoid 400 errors.
 
-# PRIMARY: Resend API
-_rs_key = os.environ.get('RESEND_API_KEY')
-RESEND_API_KEY = _rs_key.strip() if _rs_key else None
-RESEND_FROM = os.environ.get('RESEND_FROM', 'AniNews <onboarding@resend.dev>')
-
-# SECONDARY: Brevo API (confirmed working — verified sender)
+# PRIMARY: Brevo API (confirmed working — verified sender)
 _br_key = os.environ.get('BREVO_API_KEY')
 BREVO_API_KEY = _br_key.strip() if _br_key else None
 BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@aninews.app')
 BREVO_FROM_NAME = os.environ.get('BREVO_FROM_NAME', 'AniNews')
 
-# TERTIARY: SendGrid API (requires domain-verified SENDGRID_FROM_EMAIL env var)
+# SECONDARY: SendGrid API (requires domain-verified SENDGRID_FROM_EMAIL env var)
 _sg_key = os.environ.get('SENDGRID_API_KEY')
 SENDGRID_API_KEY = _sg_key.strip() if _sg_key else None
 # IMPORTANT: Set SENDGRID_FROM_EMAIL in Railway to a domain-verified sender.
 # Gmail addresses are NOT accepted by SendGrid unless your domain is verified.
 SENDGRID_FROM_EMAIL = os.environ.get('SENDGRID_FROM_EMAIL', 'noreply@aninews.app')
 SENDGRID_FROM_NAME = os.environ.get('SENDGRID_FROM_NAME', 'AniNews')
+
+# TERTIARY: Resend API (requires domain verification for arbitrary recipients)
+_rs_key = os.environ.get('RESEND_API_KEY')
+RESEND_API_KEY = _rs_key.strip() if _rs_key else None
+RESEND_FROM = os.environ.get('RESEND_FROM', 'AniNews <onboarding@resend.dev>')
 
 # FALLBACK: SMTP (blocked on Railway free tier)
 SMTP_SERVER = os.environ.get('SMTP_SERVER', "smtp.gmail.com")
@@ -172,32 +171,7 @@ def admin_required(f):
 def send_actual_email(to_email, subject, body_html, body_plain=None):
     import requests as _req
 
-    # METHOD 1: Resend API (PRIMARY)
-    if RESEND_API_KEY:
-        try:
-            payload = {
-                "from": RESEND_FROM,
-                "to": [to_email],
-                "subject": subject,
-                "html": body_html,
-            }
-            if body_plain:
-                payload["text"] = body_plain
-            resp = _req.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                print(f"[Email] Sent via Resend to {to_email}")
-                return True
-            else:
-                print(f"[Email] Resend error {resp.status_code}: {resp.text}")
-        except Exception as e:
-            print(f"[Email] Resend exception: {e}")
-
-    # METHOD 2: Brevo API (SECONDARY)
+    # METHOD 1: Brevo API (PRIMARY — verified sender, confirmed working)
     if BREVO_API_KEY:
         try:
             payload = {
@@ -222,7 +196,7 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
         except Exception as e:
             print(f"[Email] Brevo exception: {e}")
 
-    # METHOD 3: SendGrid API (TERTIARY)
+    # METHOD 2: SendGrid API (SECONDARY — requires domain-verified SENDGRID_FROM_EMAIL)
     if SENDGRID_API_KEY:
         try:
             payload = {
@@ -246,6 +220,31 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
                 print(f"[Email] SendGrid error {resp.status_code}: {resp.text}")
         except Exception as e:
             print(f"[Email] SendGrid exception: {e}")
+
+    # METHOD 3: Resend API (requires domain verification for arbitrary recipients)
+    if RESEND_API_KEY:
+        try:
+            payload = {
+                "from": RESEND_FROM,
+                "to": [to_email],
+                "subject": subject,
+                "html": body_html,
+            }
+            if body_plain:
+                payload["text"] = body_plain
+            resp = _req.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                print(f"[Email] Sent via Resend to {to_email}")
+                return True
+            else:
+                print(f"[Email] Resend error {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"[Email] Resend exception: {e}")
 
     # METHOD 4: SMTP fallback (for local dev — may be blocked on Railway)
     if SMTP_USER and SMTP_USER != "your-email@gmail.com" and SMTP_PASS:
