@@ -1252,13 +1252,11 @@ def add_gmail_reminder():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check for duplicate
+        # Insert if not already existing
         cursor.execute("SELECT id FROM reminders WHERE user_id = ? AND anime_id = ?", (user_id, anime_id))
-        if cursor.fetchone():
-            return jsonify({"status": "success", "message": "Reminder already set! You will be notified when a new episode airs."})
-
-        cursor.execute("INSERT INTO reminders (user_id, anime_id) VALUES (?, ?)", (user_id, anime_id))
-        conn.commit()
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO reminders (user_id, anime_id) VALUES (?, ?)", (user_id, anime_id))
+            conn.commit()
         
         # Fetch anime and user details to send confirmation email
         cursor.execute("SELECT title, next_episode_date, release_date, episodes_current FROM anime WHERE id = ?", (anime_id,))
@@ -1266,7 +1264,7 @@ def add_gmail_reminder():
         cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
         
-        if anime and user:
+        if anime and user and user['email']:
             title = anime['title']
             date_str = anime['next_episode_date'] or anime['release_date']
             ep_num = (anime['episodes_current'] or 0) + 1
@@ -1299,6 +1297,7 @@ def add_gmail_reminder():
                 </div>
             </div>
             """
+            print(f"[Reminder] Dispatching confirmation email for '{title}' to {user['email']}")
             # Fire confirmation email in a background thread to avoid blocking the response
             import threading as _threading
             _threading.Thread(
@@ -1307,7 +1306,7 @@ def add_gmail_reminder():
                 daemon=True
             ).start()
         
-        return jsonify({"status": "success", "message": "Reminder set! A confirmation email has been sent to your registered address."})
+        return jsonify({"status": "success", "message": "Reminder confirmed! An email has been sent to your inbox."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
