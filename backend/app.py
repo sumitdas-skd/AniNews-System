@@ -549,6 +549,16 @@ if not os.environ.get('VERCEL'):
 
 # API Routes
 
+@app.route('/health', methods=['GET', 'HEAD'])
+@app.route('/api/health', methods=['GET', 'HEAD'])
+def health_check():
+    """Lightweight health check endpoint for UptimeRobot / uptime monitors."""
+    return jsonify({
+        "status": "healthy",
+        "service": "AniNews",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }), 200
+
 @app.route('/api/anime', methods=['GET'])
 def get_anime():
     cache_key = request.full_path
