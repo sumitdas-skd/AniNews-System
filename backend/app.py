@@ -1070,57 +1070,6 @@ def approve_anime(anime_id):
     conn.commit()
     conn.close()
     return jsonify({"status": "success"})
-
-@app.route('/api/auth/register', methods=['POST'])
-@limiter.limit("3 per hour")
-def register():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
-    username = data.get('username') or email.split('@')[0] if email else None
-    
-    if not email or not password:
-        return jsonify({"status": "error", "message": "Email and password required"}), 400
-        
-    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("INSERT INTO users (email, username, password) VALUES (?, ?, ?)", (email, username, hashed_password))
-        conn.commit()
-        return jsonify({"status": "success", "message": "User registered successfully"})
-    except Exception: # Fallback for both DB types
-        return jsonify({"status": "error", "message": "Email already exists or registration failed"}), 400
-    finally:
-        conn.close()
-
-@app.route('/api/auth/login', methods=['POST'])
-@limiter.limit("5 per minute")
-def login():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
-
-    if not email or not password:
-        return jsonify({"status": "error", "message": "Email and password required"}), 400
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
-    user = cursor.fetchone()
-    conn.close()
-
-    # Guard against unsupported hash algorithms (e.g. scrypt on LibreSSL/macOS Python 3.9)
-    password_ok = False
-    if user:
-        try:
-            password_ok = check_password_hash(user['password'], password)
-        except Exception:
-            password_ok = False
-
-    if password_ok:
-        session.permanent = True
 @app.route('/api/auth/forgot-password', methods=['POST'])
 @limiter.limit("20 per hour")
 def forgot_password():
