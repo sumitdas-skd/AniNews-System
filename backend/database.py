@@ -3,21 +3,26 @@ import os
 import re
 
 # FEATURE: Support for PostgreSQL on Render/Heroku/etc.
-DATABASE_URL = os.environ.get('DATABASE_URL')
+_raw_db_url = os.environ.get('DATABASE_URL', '').strip()
+if _raw_db_url and (_raw_db_url.startswith('postgres://') or _raw_db_url.startswith('postgresql://')):
+    DATABASE_URL = _raw_db_url
+else:
+    DATABASE_URL = None
+
 DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'anime.db'))
 
 def get_db_connection():
-    # Strictly use PostgreSQL if URL is provided (Production)
+    # Strictly use PostgreSQL if a valid PostgreSQL URL is provided (Production)
     if DATABASE_URL:
         import psycopg2
         from psycopg2.extras import RealDictCursor
         
-        # Render provides this automatically
+        # Render provides this automatically when PostgreSQL is attached
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         # We wrap the connection to make it behave like sqlite3 for compatibility
         return PostgresCompatConnection(conn)
     else:
-        # Fallback to SQLite for local development only
+        # Fallback to SQLite (uses local/bundled anime.db)
         conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
         return conn
