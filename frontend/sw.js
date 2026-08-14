@@ -1,11 +1,16 @@
-const CACHE_NAME = 'aninews-v3';
+const CACHE_NAME = 'aninews-v4';
 const assetsToCache = [
     '/',
     '/index.html',
     '/detail.html',
+    '/login.html',
     '/style.css',
+    '/login.css',
+    '/config.js',
+    '/api-interceptor.js',
     '/app.js',
     '/detail.js',
+    '/icon-512.png',
     'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap'
 ];
 
@@ -52,8 +57,8 @@ self.addEventListener('push', function(event) {
 
         const options = {
             body: data.body,
-            icon: '/icon-192x192.png',
-            badge: '/icon-192x192.png',
+            icon: '/icon-512.png',
+            badge: '/icon-512.png',
             data: { url: data.url }
         };
 

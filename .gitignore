@@ -31,3 +31,5 @@ fix_*.py
 backfill.py
 *.log
 .secret_key
+*.db-wal
+*.db-shm

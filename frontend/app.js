@@ -98,20 +98,17 @@ async function checkAuth() {
         } else {
             authCache = false;
             authCacheTs = Date.now();
-            // BUG 7: guard against double redirect
-            if (!isRedirecting && window.location.pathname !== '/login') {
-                isRedirecting = true;
-                window.location.replace('/login');
-            }
+            if (profileDiv) profileDiv.innerHTML = `<a href="/login">Login</a>`;
+            const adminLink = document.getElementById('adminLink');
+            if (adminLink) adminLink.style.display = 'none';
             return false;
         }
     } catch {
         authCache = false;
         authCacheTs = Date.now();
-        if (!isRedirecting && window.location.pathname !== '/login') {
-            isRedirecting = true;
-            window.location.replace('/login');
-        }
+        const profileDiv = document.getElementById('userProfile');
+        if (profileDiv) profileDiv.innerHTML = `<a href="/login">Login</a>`;
+        return false;
     }
 }
 
@@ -285,6 +282,14 @@ async function fetchAnime(mode = null, append = false, reset = false) {
     const thisFetchId = ++lastFetchId;
     if (mode === '') mode = 'home';
     if (mode) currentMode = mode;
+
+    if (currentMode === 'watchlist') {
+        const isAuthed = await checkAuth();
+        if (!isAuthed) {
+            window.location.href = '/login';
+            return;
+        }
+    }
 
     if (!append) {
         currentPage = 0;

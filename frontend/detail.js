@@ -416,7 +416,8 @@ async function reminderOptionA() {
     }
     const end = new Date(start.getTime() + 30 * 60 * 1000);
     const formatGCal = (d) => d.toISOString().replace(/[-:]|(\.\d+)/g, '').slice(0, 15) + 'Z';
-    const googleUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('AniNews: ' + title)}&dates=${formatGCal(start)}/${formatGCal(end)}&details=${encodeURIComponent('Watch on AniNews: https://aninews.up.railway.app/detail.html?id=' + currentAnime.id)}`;
+    const detailUrl = `${window.location.origin}/detail.html?id=${currentAnime.id}`;
+    const googleUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('AniNews: ' + title)}&dates=${formatGCal(start)}/${formatGCal(end)}&details=${encodeURIComponent('Watch on AniNews: ' + detailUrl)}`;
     window.open(googleUrl, '_blank');
     closeReminderModal();
 }
@@ -431,6 +432,9 @@ async function reminderOptionB() {
         const data = await response.json();
         if (data.status === 'success') {
             alert(`✅ ${data.message}`);
+        } else if (data.message === 'Login required') {
+            alert("Please login first to set email reminders.");
+            window.location.href = '/login';
         } else {
             alert(`❌ ${data.message || 'Could not set reminder. Please try again.'}`);
         }
@@ -476,6 +480,8 @@ async function toggleWatchlistDetail(animeId) {
                 btn.innerHTML = '✓ In My List';
                 btn.setAttribute('data-in-list', 'true');
             }
+        } else if (data.message === 'Login required') {
+            window.location.href = '/login';
         }
     } catch (err) { }
 }
@@ -495,16 +501,15 @@ async function checkAuth() {
             if (adminLink && data.user.role === 'admin') adminLink.style.display = 'flex';
             return true;
         } else {
-            if (window.location.pathname !== '/login') {
-                window.location.replace('/login');
-            }
+            if (profileDiv) profileDiv.innerHTML = `<a href="/login">Login</a>`;
+            const adminLink = document.getElementById('adminLink');
+            if (adminLink) adminLink.style.display = 'none';
             return false;
         }
     } catch (err) {
-        console.error('Auth check failed');
-        if (window.location.pathname !== '/login') {
-            window.location.replace('/login');
-        }
+        const profileDiv = document.getElementById('userProfile');
+        if (profileDiv) profileDiv.innerHTML = `<a href="/login">Login</a>`;
+        return false;
     }
 }
 

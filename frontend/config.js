@@ -1,4 +1,7 @@
 window.CONFIG = {
-    // Relative paths work best when frontend and backend are on the same domain (Render)
-    API_BASE_URL: 'https://ani-news.onrender.com' 
+    // Automatically uses empty string (relative /api) for same-origin,
+    // and Render backend if running on Vercel preview/production.
+    API_BASE_URL: (window.location.hostname.includes('vercel.app')) 
+        ? 'https://aninews-system.onrender.com' 
+        : ''
 };

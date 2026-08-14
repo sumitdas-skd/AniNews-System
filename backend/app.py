@@ -22,6 +22,22 @@ from functools import lru_cache
 import hashlib
 import secrets
 
+# Automatic .env loader for local development
+def _load_env_file():
+    for env_path in [os.path.join(os.path.dirname(__file__), '..', '.env'), os.path.join(os.path.dirname(__file__), '.env')]:
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        k = k.strip()
+                        v = v.strip().strip("'").strip('"')
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+
+_load_env_file()
+
 def serialize_anime(row):
     d = dict(row)
     # Convert datetime objects to strings for JSON serialization
@@ -96,9 +112,11 @@ CORS(app, supports_credentials=True, origins=[
     re.compile(r"https://.*\.vercel\.app$"),
     re.compile(r"https://.*\.workers\.dev$"),
     re.compile(r"https://.*\.pages\.dev$"),
+    re.compile(r"https://.*\.onrender\.com$"),
+    re.compile(r"https://.*\.railway\.app$"),
     re.compile(r"http://localhost:\d+$"),
     re.compile(r"http://127\.0\.0\.1:\d+$"),
-    "https://aninews-system.onrender.com" # Allow itself
+    "https://aninews-system.onrender.com"
 ])
 
 # Optimization & Security
@@ -319,7 +337,32 @@ def send_notifications(payload):
             print(f"Error sending notification: {e}")
             
     conn.commit()
-    conn.close()
+# --- Simple TTL cache for anonymous anime list requests ---
+# Keyed on the full query-string; expires after 30 seconds
+_anime_cache = {}          # key -> (timestamp, response_data)
+_ANIME_CACHE_TTL = 30      # seconds
+_last_query = None
+_last_params = None
+_anime_cache_lock = threading.Lock()
+
+def _get_cached(key):
+    with _anime_cache_lock:
+        entry = _anime_cache.get(key)
+        if entry and (_time.monotonic() - entry[0]) < _ANIME_CACHE_TTL:
+            return entry[1]
+    return None
+
+def _set_cached(key, data):
+    with _anime_cache_lock:
+        _anime_cache[key] = (_time.monotonic(), data)
+        # Evict old entries if cache grows large
+        if len(_anime_cache) > 200:
+            oldest = min(_anime_cache, key=lambda k: _anime_cache[k][0])
+            del _anime_cache[oldest]
+
+def _invalidate_cache():
+    with _anime_cache_lock:
+        _anime_cache.clear()
 
 # Scheduler
 def scheduled_update():
@@ -353,6 +396,8 @@ def scheduled_update():
     total_new = n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
     total_updated = u1 + u2 + u3 + u4 + u5 + u6 + u7 + u8
     
+    _invalidate_cache()
+
     # 6. Check and send reminders for ongoing anime/movies
     check_and_send_reminders()
 
@@ -406,7 +451,7 @@ def check_and_send_reminders():
                 <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;padding:24px;">
                     <h2 style="color:#c084fc;">📺 New Episode Alert!</h2>
                     <p>Episode <strong style="color:#fff">{current_ep}</strong> of <strong style="color:#fff">{rem['title']}</strong> is now available!</p>
-                    <a href="https://aninews.up.railway.app" style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Watch Now on AniNews</a>
+                    <a href="{FRONTEND_URL}/detail.html?id={rem['anime_id']}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Watch Now on AniNews</a>
                     <p style="margin-top:20px;font-size:0.8rem;color:#666;">You received this because you set a reminder on AniNews.</p>
                 </div>
                 """
@@ -440,7 +485,7 @@ def check_and_send_reminders():
                          <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto;background:#0d0d1a;color:#e0e0e0;border-radius:12px;padding:24px;">
                              <h2 style="color:#f59e0b;">⏱️ Airing in 1 Hour!</h2>
                              <p>Episode <strong style="color:#fff">{target_ep}</strong> of <strong style="color:#fff">{rem['title']}</strong> airs in about an hour. Get ready!</p>
-                             <a href="https://aninews.up.railway.app" style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Go to AniNews</a>
+                             <a href="{FRONTEND_URL}/detail.html?id={rem['anime_id']}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Go to AniNews</a>
                              <p style="margin-top:20px;font-size:0.8rem;color:#666;">You received this because you set a reminder on AniNews.</p>
                          </div>
                          """
@@ -456,6 +501,7 @@ def scheduled_update_all():
     print("Running 12-hour full sync...")
     from fetcher import update_all_anime
     n, u = update_all_anime()
+    _invalidate_cache()
     if n > 0 or u > 0:
         send_notifications({
             "title": "Comprehensive Database Sync Complete",
@@ -494,33 +540,6 @@ if not os.environ.get('VERCEL'):
         print('[Scheduler] Started in dev mode')
 
 # API Routes
-
-# --- Simple TTL cache for anonymous anime list requests ---
-# Keyed on the full query-string; expires after 30 seconds
-_anime_cache = {}          # key -> (timestamp, response_data)
-_ANIME_CACHE_TTL = 30      # seconds
-_last_query = None
-_last_params = None
-_anime_cache_lock = threading.Lock()
-
-def _get_cached(key):
-    with _anime_cache_lock:
-        entry = _anime_cache.get(key)
-        if entry and (_time.monotonic() - entry[0]) < _ANIME_CACHE_TTL:
-            return entry[1]
-    return None
-
-def _set_cached(key, data):
-    with _anime_cache_lock:
-        _anime_cache[key] = (_time.monotonic(), data)
-        # Evict old entries if cache grows large
-        if len(_anime_cache) > 200:
-            oldest = min(_anime_cache, key=lambda k: _anime_cache[k][0])
-            del _anime_cache[oldest]
-
-def _invalidate_cache():
-    with _anime_cache_lock:
-        _anime_cache.clear()
 
 @app.route('/api/anime', methods=['GET'])
 def get_anime():
@@ -715,7 +734,20 @@ def get_hero_anime():
     return resp
 
 # Feature 1: Last-update tracker
-_last_update_time = None
+def _get_latest_db_update():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(updated_at) as latest FROM anime")
+        row = cursor.fetchone()
+        conn.close()
+        if row and row['latest']:
+            return row['latest']
+    except Exception:
+        pass
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+_last_update_time = _get_latest_db_update()
 
 def _run_update_and_track():
     global _last_update_time
@@ -1085,8 +1117,7 @@ def forgot_password():
         user = cursor.fetchone()
 
         if not user:
-            # TEMPORARILY REVEALING IF USER EXISTS TO HELP DEBUGGING
-            return jsonify({"status": "error", "message": f"The email '{email}' is NOT registered in the database! Please sign up first."})
+            return jsonify({"status": "success", "message": "If this email is registered, check your inbox for reset instructions."})
 
         token = secrets.token_urlsafe(32)
         expiry = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
@@ -1235,7 +1266,7 @@ def add_gmail_reminder():
                         <p style="margin:0;">📅 <strong>Expected:</strong> {date_display}</p>
                     </div>
                     <p style="color:#aaa;font-size:0.9rem;">We'll send you an email alert 1 hour before the episode airs and again when it's released.</p>
-                    <a href="https://aninews.up.railway.app" style="display:inline-block;margin-top:16px;padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Visit AniNews</a>
+                    <a href="{FRONTEND_URL}/detail.html?id={anime_id}" style="display:inline-block;margin-top:16px;padding:12px 28px;background:linear-gradient(135deg,#7c3aed,#c084fc);color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Visit AniNews</a>
                     <p style="margin-top:24px;font-size:0.75rem;color:#555;">You received this because you set a reminder on AniNews. To cancel, visit the site and remove your reminder.</p>
                 </div>
             </div>
@@ -1476,6 +1507,7 @@ def force_update():
     n5, u5 = update_ongoing_anime()
     n6, u6 = update_database(fetch_newly_released_anime())
     n7, u7 = update_database(fetch_upcoming_anime())
+    _invalidate_cache()
     return jsonify({
         "status": "success",
         "new": n1 + n2 + n3 + n4 + n5 + n6 + n7,
