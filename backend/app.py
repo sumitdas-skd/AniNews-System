@@ -1121,19 +1121,12 @@ def login():
 
     if password_ok:
         session.permanent = True
-        session['user_id'] = user['id']
-        session['email'] = user['email']
-        session['role'] = user['role']
-        return jsonify({"status": "success", "user": {"email": user['email'], "role": user['role']}})
-    
-    return jsonify({"status": "error", "message": "Invalid email or password"}), 401
-
 @app.route('/api/auth/forgot-password', methods=['POST'])
 @limiter.limit("20 per hour")
 def forgot_password():
     import traceback
-    data = request.json
-    email = data.get('email')
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
     if not email:
         return jsonify({"status": "error", "message": "Email is required"}), 400
 
@@ -1141,12 +1134,14 @@ def forgot_password():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+        cursor.execute("SELECT id, email FROM users WHERE LOWER(email) = LOWER(?)", (email,))
         user = cursor.fetchone()
 
         if not user:
+            print(f"[forgot-password] User not found for email: {email}")
             return jsonify({"status": "success", "message": "If this email is registered, check your inbox for reset instructions."})
 
+        actual_email = user['email']
         token = secrets.token_urlsafe(32)
         expiry = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat()
 
@@ -1154,8 +1149,6 @@ def forgot_password():
         conn.commit()
 
         subject = "Password Reset Request - AniNews"
-        # Use FRONTEND_URL env var so the link points to the correct frontend
-        # (not the Railway backend URL). Set FRONTEND_URL in Railway env vars.
         reset_url = f"{FRONTEND_URL}/login?token={token}"
         body_plain = f"Click the link below to reset your AniNews password. The link will expire in 1 hour.\n\n{reset_url}\n\nIf you did not request this, please ignore this email."
         body_html = f"""
@@ -1176,14 +1169,12 @@ def forgot_password():
         </div>
         """
 
-        # Send email synchronously (not in background) so we can catch any errors immediately
-        email_sent = send_actual_email(email, subject, body_html, body_plain)
+        email_sent = send_actual_email(actual_email, subject, body_html, body_plain)
         if email_sent:
-            print(f"[forgot-password] Reset email successfully sent to {email}")
+            print(f"[forgot-password] Reset email successfully sent to {actual_email}")
         else:
-            print(f"[forgot-password] WARNING: Failed to send reset email to {email}")
+            print(f"[forgot-password] WARNING: Failed to send reset email to {actual_email}")
 
-        # Always return success so the user knows to check their inbox
         return jsonify({"status": "success", "message": "Check your email for reset instructions."})
 
     except Exception as e:
@@ -1191,51 +1182,113 @@ def forgot_password():
         return jsonify({"status": "error", "message": f"Server error: {str(e)}"}), 500
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            try: conn.close()
+            except: pass
 
 @app.route('/api/auth/reset-password', methods=['POST'])
-@limiter.limit("3 per hour")
+@limiter.limit("20 per hour")
 def reset_password():
-    data = request.json
+    data = request.json or {}
     token = data.get('token')
     new_password = data.get('password')
-    
+
     if not token or not new_password:
-        return jsonify({"status": "error", "message": "Token and new password required"}), 400
+        return jsonify({"status": "error", "message": "Token and new password are required"}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"status": "error", "message": "Password must be at least 6 characters"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, reset_token_expiry FROM users WHERE reset_token = ?", (token,))
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({"status": "error", "message": "Invalid or expired reset token"}), 400
+
+        if user['reset_token_expiry']:
+            expiry = datetime.datetime.fromisoformat(user['reset_token_expiry'])
+            now = datetime.datetime.now(datetime.timezone.utc)
+            if expiry < now:
+                return jsonify({"status": "error", "message": "Reset token has expired"}), 400
+
+        hashed_password = generate_password_hash(new_password)
+        cursor.execute("UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?",
+                       (hashed_password, user['id']))
+        conn.commit()
+
+        return jsonify({"status": "success", "message": "Password reset successfully. You can now log in."})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Server error: {str(e)}"}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/auth/register', methods=['POST'])
+@limiter.limit("10 per minute")
+def register():
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password')
+    username = data.get('username') or email.split('@')[0]
+    
+    if not email or not password:
+        return jsonify({"status": "error", "message": "Email and password are required"}), 400
+        
+    hashed_password = generate_password_hash(password)
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, reset_token_expiry FROM users WHERE reset_token = ?", (token,))
+    try:
+        cursor.execute("INSERT INTO users (email, username, password) VALUES (?, ?, ?)", 
+                       (email, username, hashed_password))
+        conn.commit()
+        
+        cursor.execute("SELECT id, email, role FROM users WHERE email = ?", (email,))
+        new_user = cursor.fetchone()
+        
+        session['user_id'] = new_user['id']
+        session['email'] = new_user['email']
+        session['role'] = new_user['role']
+        
+        return jsonify({"status": "success", "user": {"email": new_user['email'], "role": new_user['role']}})
+    except IntegrityError:
+        return jsonify({"status": "error", "message": "Email already exists or registration failed"}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("20 per minute")
+def login():
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password')
+    
+    if not email or not password:
+        return jsonify({"status": "error", "message": "Email and password are required"}), 400
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", (email,))
     user = cursor.fetchone()
-    
-    if not user:
-        conn.close()
-        return jsonify({"status": "error", "message": "Invalid or expired token"}), 400
-    
-    # Check expiry
-    expiry_str = user['reset_token_expiry']
-    expiry = datetime.datetime.fromisoformat(expiry_str.replace('Z', '+00:00'))
-    if expiry < datetime.datetime.now(datetime.timezone.utc):
-        conn.close()
-        return jsonify({"status": "error", "message": "Token has expired"}), 400
-    
-    hashed_password = generate_password_hash(new_password, method='pbkdf2:sha256')
-    cursor.execute("UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?", (hashed_password, user['id']))
-    conn.commit()
     conn.close()
     
-    return jsonify({"status": "success", "message": "Password reset successful! You can now login."})
+    if user and check_password_hash(user['password'], password):
+        session['user_id'] = user['id']
+        session['email'] = user['email']
+        session['role'] = user['role']
+        return jsonify({"status": "success", "user": {"email": user['email'], "role": user['role']}})
+    
+    return jsonify({"status": "error", "message": "Invalid email or password"}), 401
 
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
     session.clear()
-    return jsonify({"status": "success"})
+    return jsonify({"status": "success", "message": "Logged out successfully"})
 
 @app.route('/api/auth/me', methods=['GET'])
-def get_me():
+def get_current_user():
     if 'user_id' in session:
         return jsonify({"status": "success", "user": {"email": session['email'], "role": session.get('role', 'user')}})
     return jsonify({"status": "error", "message": "Not logged in"}), 401
@@ -1245,16 +1298,17 @@ def add_gmail_reminder():
     if 'user_id' not in session:
         return jsonify({"status": "error", "message": "Login required"}), 401
     
-    data = request.json
+    data = request.json or {}
     anime_id = data.get('anime_id')
     user_id = session['user_id']
     
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Insert if not already existing
+        # Check if already in reminders
         cursor.execute("SELECT id FROM reminders WHERE user_id = ? AND anime_id = ?", (user_id, anime_id))
-        if not cursor.fetchone():
+        existing = cursor.fetchone()
+        if not existing:
             cursor.execute("INSERT INTO reminders (user_id, anime_id) VALUES (?, ?)", (user_id, anime_id))
             conn.commit()
         
@@ -1264,7 +1318,7 @@ def add_gmail_reminder():
         cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
         
-        if anime and user and user['email']:
+        if anime and user:
             title = anime['title']
             date_str = anime['next_episode_date'] or anime['release_date']
             ep_num = (anime['episodes_current'] or 0) + 1
@@ -1297,16 +1351,10 @@ def add_gmail_reminder():
                 </div>
             </div>
             """
-            print(f"[Reminder] Dispatching confirmation email for '{title}' to {user['email']}")
-            # Fire confirmation email in a background thread to avoid blocking the response
-            import threading as _threading
-            _threading.Thread(
-                target=send_actual_email,
-                args=(user['email'], subject, body_html, body_plain),
-                daemon=True
-            ).start()
+            # Send confirmation email synchronously
+            send_actual_email(user['email'], subject, body_html, body_plain)
         
-        return jsonify({"status": "success", "message": "Reminder confirmed! An email has been sent to your inbox."})
+        return jsonify({"status": "success", "message": "Reminder set! A confirmation email has been sent to your registered address."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
