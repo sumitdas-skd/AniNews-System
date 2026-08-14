@@ -143,7 +143,7 @@ limiter = Limiter(
 # PRIMARY: Brevo API (confirmed working — verified sender)
 _br_key = os.environ.get('BREVO_API_KEY')
 BREVO_API_KEY = _br_key.strip() if _br_key else None
-BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@aninews.app')
+BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'sumitdas810700@gmail.com')
 BREVO_FROM_NAME = os.environ.get('BREVO_FROM_NAME', 'AniNews')
 
 # SECONDARY: SendGrid API (requires domain-verified SENDGRID_FROM_EMAIL env var)
