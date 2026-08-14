@@ -286,6 +286,41 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_anime_title_search ON anime(title)")
     except: pass
     
+    # Pre-seed default genres
+    default_genres = [
+        "Action & Adventure", "Slice of Life", "Fantasy", "Dark Fantasy", "Sci-Fi & Mecha",
+        "Romance", "Supernatural & Horror", "Sports", "Isekai", "Mahou Shoujo",
+        "Iyashikei", "Harem / Reverse Harem", "Ecchi", "Action", "Horror", "Fantasy", "Adventure"
+    ]
+    for g in default_genres:
+        try:
+            cursor.execute("INSERT OR IGNORE INTO genres (genre_name) VALUES (?)", (g,))
+        except: pass
+
+    # Self-heal: populate anime_genres relational mapping from anime.genres if empty
+    try:
+        cursor.execute("SELECT COUNT(*) as c FROM anime_genres")
+        ag_count = cursor.fetchone()
+        count_val = ag_count['c'] if isinstance(ag_count, dict) else (ag_count[0] if ag_count else 0)
+        if count_val == 0:
+            cursor.execute("SELECT id, genres FROM anime WHERE genres IS NOT NULL AND genres != ''")
+            all_anime = cursor.fetchall()
+            for row in all_anime:
+                a_id = row['id']
+                g_str = row['genres']
+                for g_name in [g.strip() for g in g_str.split(',') if g.strip()]:
+                    cursor.execute("SELECT id FROM genres WHERE genre_name = ?", (g_name,))
+                    g_row = cursor.fetchone()
+                    if not g_row:
+                        cursor.execute("INSERT OR IGNORE INTO genres (genre_name) VALUES (?)", (g_name,))
+                        cursor.execute("SELECT id FROM genres WHERE genre_name = ?", (g_name,))
+                        g_row = cursor.fetchone()
+                    if g_row:
+                        gid = g_row['id'] if isinstance(g_row, dict) else g_row[0]
+                        cursor.execute("INSERT OR IGNORE INTO anime_genres (anime_id, genre_id) VALUES (?, ?)", (a_id, gid))
+    except Exception as e:
+        print(f"Non-critical: anime_genres self-heal skipped: {e}")
+
     conn.commit()
     conn.close()
 

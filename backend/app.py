@@ -192,10 +192,14 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
     import requests as _req
 
     # METHOD 1: Brevo API (PRIMARY — verified sender, confirmed working)
-    if BREVO_API_KEY:
+    brevo_key = (os.environ.get('BREVO_API_KEY') or BREVO_API_KEY or '').strip()
+    brevo_from = (os.environ.get('BREVO_FROM_EMAIL') or BREVO_FROM_EMAIL or 'noreply@aninews.app').strip()
+    brevo_name = (os.environ.get('BREVO_FROM_NAME') or BREVO_FROM_NAME or 'AniNews').strip()
+
+    if brevo_key:
         try:
             payload = {
-                "sender": {"name": BREVO_FROM_NAME, "email": BREVO_FROM_EMAIL},
+                "sender": {"name": brevo_name, "email": brevo_from},
                 "to": [{"email": to_email}],
                 "subject": subject,
                 "htmlContent": body_html,
@@ -204,7 +208,7 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
                 payload["textContent"] = body_plain
             resp = _req.post(
                 "https://api.brevo.com/v3/smtp/email",
-                headers={"api-key": BREVO_API_KEY, "Content-Type": "application/json"},
+                headers={"api-key": brevo_key, "Content-Type": "application/json"},
                 json=payload,
                 timeout=10,
             )
@@ -217,7 +221,11 @@ def send_actual_email(to_email, subject, body_html, body_plain=None):
             print(f"[Email] Brevo exception: {e}")
 
     # METHOD 2: SendGrid API (SECONDARY — requires domain-verified SENDGRID_FROM_EMAIL)
-    if SENDGRID_API_KEY:
+    sendgrid_key = (os.environ.get('SENDGRID_API_KEY') or SENDGRID_API_KEY or '').strip()
+    sendgrid_from = (os.environ.get('SENDGRID_FROM_EMAIL') or SENDGRID_FROM_EMAIL or 'noreply@aninews.app').strip()
+    sendgrid_name = (os.environ.get('SENDGRID_FROM_NAME') or SENDGRID_FROM_NAME or 'AniNews').strip()
+
+    if sendgrid_key:
         try:
             payload = {
                 "personalizations": [{"to": [{"email": to_email}]}],
@@ -575,19 +583,29 @@ def get_anime():
         base_select = "SELECT a.* FROM anime a"
         where_clauses = ["a.is_approved = 1"]
 
-    # Category filter via EXISTS sub-query (avoids duplicate rows, uses index)
+    # Auto-resolve category from mode if mode represents a genre
+    if not category_raw and mode and mode.lower() not in ('home', 'trending', 'watchlist', 'upcoming', 'reset'):
+        category_raw = mode
+
+    # Category filter: Check relational table OR text genres column (100% reliable matching)
     if category_raw:
         categories = [c.strip() for c in category_raw.split(',') if c.strip()]
         if categories:
-            placeholders = ",".join(["?" for _ in categories])
-            where_clauses.append(f"""
-                EXISTS (
-                    SELECT 1 FROM anime_genres ag
-                    JOIN genres g ON ag.genre_id = g.id
-                    WHERE ag.anime_id = a.id AND g.genre_name IN ({placeholders})
-                )
-            """)
-            params.extend(categories)
+            cat_clauses = []
+            for cat in categories:
+                cat_clauses.append("""
+                    (
+                        EXISTS (
+                            SELECT 1 FROM anime_genres ag
+                            JOIN genres g ON ag.genre_id = g.id
+                            WHERE ag.anime_id = a.id AND (LOWER(g.genre_name) = LOWER(?) OR LOWER(g.genre_name) LIKE ?)
+                        )
+                        OR LOWER(COALESCE(a.genres, '')) LIKE ?
+                    )
+                """)
+                like_pat = f"%{cat.lower()}%"
+                params.extend([cat, like_pat, like_pat])
+            where_clauses.append(f"({' OR '.join(cat_clauses)})")
 
     # Status filter
     if status_filter:
